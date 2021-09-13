@@ -6,6 +6,7 @@ class BatchData:  # batchdata collected from policy
         self.actions = []
         self.v = []
         self.logprobs = []  # log probs of each action
+        self.old_logprobs = []
         self.rewards = []
         self.is_terminal = []  # whether or not terminal state was reached
         self.next_states = []
@@ -14,6 +15,7 @@ class BatchData:  # batchdata collected from policy
         self.states.clear()
         self.actions.clear()
         self.logprobs.clear()
+        self.old_logprobs.clear()
         self.v.clear()
         self.rewards.clear()
         self.is_terminal.clear()

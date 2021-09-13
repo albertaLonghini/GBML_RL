@@ -28,6 +28,8 @@ class Simulator:
         self.goal_val = params['goal_val']
         self.obs_val = params['obs_val']
 
+        self.sparse = params['sparse_reward']
+
         self.show_goal = params['show_goal']
 
         self.T = T
@@ -73,12 +75,15 @@ class Simulator:
             self.actual_pos_x = old_pos_x
             self.actual_pos_y = old_pos_y
 
-        r = - (np.abs(self.actual_pos_x - self.goal[0]) + np.abs(self.actual_pos_y - self.goal[1])) / self.T  # todo: unnormalized and l1 norm
+        if self.sparse == 1:
+            r = 0
+        else:
+            r = - (np.abs(self.actual_pos_x - self.goal[0]) + np.abs(self.actual_pos_y - self.goal[1])) / self.T  # todo: unnormalized and l1 norm
         # r = - (np.abs(self.actual_pos_x - self.goal[0])**2 + np.abs(self.actual_pos_y - self.goal[1])**2)
 
         # Check if goal reached
         if (self.actual_pos_x, self.actual_pos_y) == self.goal:
-            return 1., True
+            return 1., False #True #TODO: back to True? exploration of multiple goals?
 
         # Set new position
         # self.grid[self.actual_pos_x, self.actual_pos_y] = self.pos_val
@@ -107,6 +112,9 @@ class Simulator:
 
     def normalize_reward(self, r, T):
         return r #- 1 + T * (T-1)/2.
+
+    def get_distance(self):
+        return - (np.abs(self.actual_pos_x - self.goal[0]) + np.abs(self.actual_pos_y - self.goal[1])) / self.T
 
 
 

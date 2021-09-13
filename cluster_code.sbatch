@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --constrain='balrog|belegost|gondor|khazadum|rivendell|shelob|shire|smaug'
 
-source "/Midgard/home/longhini/miniconda3/etc/profile.d/conda.sh"
-conda activate python3_env
+source "/Midgard/home/areichlin/miniconda3/etc/profile.d/conda.sh"
+conda activate env_torch
 
-python3 /Midgard/home/longhini/GBML_RL/main.py --path_length ${PL} --batch_tasks ${BT} --episodes_maml ${EM} --adaptation_trajectories ${AT} --adaptation_best_trajectories ${ABT} --eps_adapt ${EA} --modalities_goal_dist ${MGD} --filter_type ${FT}
+python3 /Midgard/home/areichlin/GBML_RL/main.py --sparse_reward ${SPARSE} --add_loss_exploration ${L2} --inner_loss_type ${INNER} --decoupled_explorer ${DECOUPLE}

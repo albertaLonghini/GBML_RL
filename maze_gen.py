@@ -56,10 +56,11 @@ class Maze_Gen:
         self.size = params['grid_size']
         self.path_length = params['path_length']
         self.mods = params['modalities_goal_dist']
+        self.p = params['p_obstacles']
 
     def get_maze(self, central=True):
         while True:
-            temp = np.random.binomial(1, 0.2, (self.size, self.size))
+            temp = np.random.binomial(1, self.p, (self.size, self.size))
             grid = np.ones((temp.shape[0] + 2, temp.shape[0] + 2))
             grid[1:-1, 1:-1] = temp
 
@@ -101,10 +102,10 @@ class Maze_Gen:
         else:
             while True:
                 quadrant = np.random.randint(0, np.minimum(self.mods, 4))
-                i_s = [np.random.randint(0, np.minimum(int(self.mods / T) + np.clip(self.mods % T - 0, 0, 1), T)),
-                       np.random.randint(0, np.minimum(int(self.mods / T) + np.clip(self.mods % T - 1, 0, 1), T)),
-                       np.random.randint(0, np.minimum(int(self.mods / T) + np.clip(self.mods % T - 2, 0, 1), T)),
-                       np.random.randint(0, np.minimum(int(self.mods / T) + np.clip(self.mods % T - 3, 0, 1), T))]
+                i_s = [np.random.randint(0, np.clip(int(self.mods / 4) + np.clip(self.mods % 4 - 0, 0, 1), 1, T)),
+                       np.random.randint(0, np.clip(int(self.mods / 4) + np.clip(self.mods % 4 - 1, 0, 1), 1, T)),
+                       np.random.randint(0, np.clip(int(self.mods / 4) + np.clip(self.mods % 4 - 2, 0, 1), 1, T)),
+                       np.random.randint(0, np.clip(int(self.mods / 4) + np.clip(self.mods % 4 - 3, 0, 1), 1, T))]
                 goals = np.array([[- T + i_s[0], i_s[0]], [i_s[1], T - i_s[1]], [T - i_s[2], - i_s[2]], [- i_s[3], - T + i_s[3]]])
                 goal = goals[quadrant] + starting_point
                 if 0 < goal[0] <= self.size and 0 < goal[1] <= self.size:
