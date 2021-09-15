@@ -45,12 +45,19 @@ class PPO(nn.Module):
         self.c1 = params['c1']
         self.c2 = params['c2']
 
+
+        self.reg_l2 = params['reg_l2']
+        self.cl2 = params['cl2']
+
+
+
         self.kl = torch.nn.KLDivLoss(reduction='batchmean', log_target=True)
         self.nu = params['kl_nu']
 
         self.add_l2 = params['add_loss_exploration']
         self.inner_loss_type = params['inner_loss_type']
         self.idx_reward_pred = 0
+        self.dec_opt = params['decoupled_optimization']
 
         self.decouple_models = params['decoupled_explorer']
 
@@ -67,7 +74,24 @@ class PPO(nn.Module):
 
         self.cos = torch.nn.CosineSimilarity(dim=0, eps=1e-08)
         self.MSE_loss = nn.MSELoss()  # to calculate critic loss
-        self.optimizer = Adam(self.policy.parameters(), lr=self.lr, eps=params['adam_epsilon'])
+        # self.optimizer = Adam(self.policy.parameters(), lr=self.lr, eps=params['adam_epsilon'])
+
+        if self.dec_opt == 0:
+            self.model_parameters = self.policy.parameters()
+            self.optimizer = Adam(self.model_parameters, lr=self.lr, eps=params['adam_epsilon'])
+        else:
+            psi_params = [param for param in self.policy.psi.parameters()]
+            z_params = [param for param in self.policy.z_0.parameters()]
+            theta_params = [param for param in self.policy.theta.parameters()]
+            beta_params = [param for param in self.policy.beta.parameters()]
+            if adaptive_lr:
+                lr_params = [param for param in self.policy.lr.parameters()]
+            else:
+                lr_params = []
+            self.model_parameters = z_params+theta_params+beta_params+lr_params
+            self.explorer_parameters = psi_params
+            self.optimizer_exploiter = Adam(self.model_parameters, lr=self.lr, eps=params['adam_epsilon'])
+            self.optimizer_explorer = Adam(psi_params, lr=self.lr, eps=params['adam_epsilon'])
 
         if self.add_l2 == 1:
             self.reward_prediction_model = Reward_Predictor(params['grid_size'], self.show_goal)
@@ -161,15 +185,15 @@ class PPO(nn.Module):
 
         return theta_i, loss.detach().cpu().item(), loss_pi, loss_v, theta_grad_s
 
-    def update_adaptation_batches(self):
-
-        for batchdata in (self.batchdata[0]):
-            states = torch.cat([self.to_tensor(x) for x in batchdata.states], 0).detach()
-            actions = self.to_tensor(batchdata.actions).long().detach()
-            logprobs, state_vals, _ = self.policy.evaluate(states, actions)#, theta=self.policy.get_theta())
-
-            batchdata.logprobs = [x.detach() for x in logprobs]
-            batchdata.v = [x.detach() for x in state_vals]
+    # def update_adaptation_batches(self):
+    #
+    #     for batchdata in (self.batchdata[0]):
+    #         states = torch.cat([self.to_tensor(x) for x in batchdata.states], 0).detach()
+    #         actions = self.to_tensor(batchdata.actions).long().detach()
+    #         logprobs, state_vals, _ = self.policy.evaluate(states, actions)#, theta=self.policy.get_theta())
+    #
+    #         batchdata.logprobs = [x.detach() for x in logprobs]
+    #         batchdata.v = [x.detach() for x in state_vals]
 
     def get_loss(self, theta_i, theta_0, idx, grads_adapt=None):
         # get form correct batch old policy data
@@ -206,8 +230,9 @@ class PPO(nn.Module):
             log_pi_theta_0, _, _ = self.policy.evaluate(old_states, old_actions, theta=theta_0)
             loss += self.nu * self.kl(log_pi_theta, log_pi_theta_0.detach())
 
+        loss_2 = 0
         if self.add_l2 == 1:
-            loss += self.get_l2(self.batchdata[0][idx])
+            loss_2 = self.get_l2(self.batchdata[0][idx])
 
         if self.grad_align == 1:
             grads_evaluate = torch.autograd.grad(outputs=(actor_loss + critic_loss), inputs=theta_i, retain_graph=True)
@@ -215,10 +240,9 @@ class PPO(nn.Module):
 
             # loss -= 100. * gradient_loss
 
-            return loss, cosine_sim.detach().cpu().item()
+            return loss, loss_2, cosine_sim.detach().cpu().item()
 
-
-        return loss, 0
+        return loss, loss_2, 0
 
 
     def get_l2(self, D):
@@ -229,9 +253,15 @@ class PPO(nn.Module):
         actions = self.to_tensor(D.actions).view(-1, 1).detach()
         # logprobs = torch.cat([x.view(1) for x in D.logprobs])
 
-        logprobs, _, _ = self.policy.evaluate(states, actions[:,0])
+        logprobs, _, _ = self.policy.evaluate(states, actions[:, 0])
 
-        rt_hat = (rt - self.reward_prediction_model(states, actions))**2
+        rt_pred = self.reward_prediction_model(states, actions)
+        rt_hat = (rt - rt_pred)**2
+        # rt_hat_var = ((rt_hat - rt_hat.mean()) ** 2).mean()  # todo: variance of the rewards
+        # rt_hat_mean = rt_hat.mean()
+        # if self.reg_l2 ==1:
+        #     rt_hat_mean += rt_hat_var
+
         self.optimizer_curiosity.zero_grad()
         rt_hat.mean().backward()
         self.optimizer_curiosity.step()
@@ -239,9 +269,22 @@ class PPO(nn.Module):
         self.writer.add_scalar("Reward prediction loss", rt_hat.mean().detach().cpu().numpy(), self.idx_reward_pred)
         self.idx_reward_pred += 1
 
-        rtgs = self.to_tensor(calc_rtg(rt_hat.detach().cpu().numpy(), D.is_terminal, self.gamma))  # reward-to-go
+        # unique_states = []
+        # zero_out = []
+        # for state, terminal in zip(next_states, D.is_terminal):
+        #     if terminal:
+        #         unique_states = []
+        #     if any([(state == x).all() for x in unique_states]):
+        #         zero_out.append(0)
+        #     else:
+        #         unique_states.append(state)
+        #         zero_out.append(1)
 
-        return (- logprobs * rtgs.detach()).mean()
+        rt_hat_zero_out = rt_hat.detach().cpu().numpy()# * np.array(zero_out)
+
+        rtgs = self.to_tensor(calc_rtg(rt_hat_zero_out, D.is_terminal, self.gamma))  # reward-to-go £
+
+        return self.cl2*(- logprobs * rtgs.detach()).mean()
 
     def save_model(self, filepath='./ppo_model.pth'):  # TODO filename param
         torch.save(self.policy.state_dict(), filepath)
@@ -268,7 +311,7 @@ class PPO(nn.Module):
         self.batchdata[mode][idx].actions.append(a)
         self.batchdata[mode][idx].logprobs.append(logprob.detach())
         self.batchdata[mode][idx].old_logprobs.append(old_logprob.detach())
-        self.batchdata[mode][idx].v.append(v.detach())
+        self.batchdata[mode][idx].v.append(v if isinstance(v, int) else v.detach())
         self.batchdata[mode][idx].rewards.append(r)
         self.batchdata[mode][idx].is_terminal.append(done)
         self.batchdata[mode][idx].next_states.append(st1)

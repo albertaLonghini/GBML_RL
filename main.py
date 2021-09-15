@@ -42,7 +42,7 @@ parser.add_argument('--horizon_multiplier_adaptation', default=5, type=int, help
 
 
 
-parser.add_argument('--modalities_goal_dist', default=4, type=int, help='0: unifrom, else number of possible different goal positions')
+parser.add_argument('--modalities_goal_dist', default=24, type=int, help='0: unifrom, else number of possible different goal positions')
 
 
 
@@ -71,12 +71,14 @@ parser.add_argument('--c1', default=0.5, type=float, help='scaling constant for 
 parser.add_argument('--c2', default=0.0, type=float, help='scaling constant for entropy bonus in PPO')
 parser.add_argument('--gradient_clipping', default=1, type=int, help='clip gradients in PPO')
 
+parser.add_argument('--cl2', default=1.0, type=float, help='scaling constant additive loss')
+parser.add_argument('--reg_l2', default=0, type=int, help='regularization additive loss')
+
 parser.add_argument('--eps_clip', default=0.2, type=float, help='ppo epsilon clipping term')
 
 parser.add_argument('--inner_lr', default=0.1, type=float, help='inner loss learning rate')
 parser.add_argument('--lr', default=0.001, type=float, help='outer loss learning rate')
 parser.add_argument('--curiosity_lr', default=0.0001, type=float, help='curiosity module learning rate')
-
 parser.add_argument('--kl_nu', default=0.0005, type=float, help='kl scale factor')
 
 parser.add_argument('--gradient_alignment', default=0, type=int, help='add cosine similarity btw gradients in the outer loss')
@@ -88,11 +90,12 @@ parser.add_argument('--goal_val', default=1, type=int, help='Value in the maze w
 parser.add_argument('--obs_val', default=1, type=int, help='Value in the maze which represents the obstacles')
 
 parser.add_argument('--p_obstacles', default=0.0, type=float, help='probability each cell becomes an obstacle')
-parser.add_argument('--sparse_reward', default=0, type=int, help='0: dense reward, 1: sparse reward')
+parser.add_argument('--sparse_reward', default=1, type=int, help='0: dense reward, 1: sparse reward')
 
-parser.add_argument('--add_loss_exploration', default=0, type=int, help='0: no l2, 1: l2 curiosity')  # , 2: l2 trajectory prediction
+parser.add_argument('--add_loss_exploration', default=1, type=int, help='0: no l2, 1: l2 curiosity')  # , 2: l2 trajectory prediction
 parser.add_argument('--inner_loss_type', default=0, type=int, help='0: PPO, 1: reward prediction')
 parser.add_argument('--decoupled_explorer', default=0, type=int, help='0: same model for exploration and exploitation, 1: different explorer and exploiter')
+parser.add_argument('--decoupled_optimization', default=0, type=int, help='0: same optimizer, 1: optimize only L2')
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -119,12 +122,16 @@ if __name__ == '__main__':
 
     if params['inner_loss_type'] == 0 and params['decoupled_explorer'] == 1:
         exit()
+    if params['decoupled_optimization'] == 1 and (params['add_loss_exploration'] == 0 or params['decoupled_explorer'] == 0):
+        exit()
 
-    logdir = './logs_promp4/l2='+str(params['add_loss_exploration'])+'_l_inner='+str(params['inner_loss_type'])+'_decouple='+str(params['decoupled_explorer'])+'_R_sparse='+str(params['sparse_reward'])
+    logdir = './logs_promp6/l2='+str(params['add_loss_exploration'])+'_l_inner='+str(params['inner_loss_type'])+'_decouple_e='+str(params['decoupled_explorer'])+'_decouple_opt='+str(params['decoupled_optimization'])+'_R_sparse='+str(params['sparse_reward'])
     # logdir = './logs_promp3/l2='+str(params['add_loss_exploration'])+'_inner_type='+str(params['inner_loss_type'])+'_decouple='+str(params['decoupled_explorer'])
     writer = SummaryWriter(log_dir=logdir)
 
-    meta_pg(params, writer, device)
+    n_experiment = "6"
+
+    meta_pg(params, writer, n_experiment, device)
     exit()
 
     # params['epochs'] = 200
@@ -192,3 +199,5 @@ if __name__ == '__main__':
 # plot_data(l2_inner0_dec0_sparse)
 # plot_data(l2_inner1_dec0_sparse)
 # plt.legend(['pg', 'r_pred', 'l2_pg', 'l2_r_pred'])
+
+

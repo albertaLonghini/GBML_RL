@@ -7,4 +7,4 @@
 source "/Midgard/home/areichlin/miniconda3/etc/profile.d/conda.sh"
 conda activate env_torch
 
-python3 /Midgard/home/areichlin/GBML_RL/main.py --sparse_reward ${SPARSE} --add_loss_exploration ${L2} --inner_loss_type ${INNER} --decoupled_explorer ${DECOUPLE}
+python3 /Midgard/home/areichlin/GBML_RL/main.py --sparse_reward ${SPARSE} --add_loss_exploration ${L2} --inner_loss_type ${INNER} --decoupled_explorer ${DEC_E} --decoupled_optimization ${DEC_OPT}

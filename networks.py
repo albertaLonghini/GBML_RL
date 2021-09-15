@@ -336,7 +336,7 @@ class MamlParamsPPO(nn.Module):
                 theta = self.theta_0
                 if self.decouple_explorer == 1:
                     # theta = self.psi
-                    print("ERROR - Wring combination of parameters")
+                    print("ERROR - Wrong combination of parameters")
                     exit()
 
             h = self.activation_f(F.conv2d(x, theta[0], bias=theta[1], stride=1, padding=0))
@@ -374,7 +374,8 @@ class MamlParamsPPO(nn.Module):
                 pi = F.softmax(h_a, -1)
                 # h_c = self.activation_f(F.linear(h, theta[12], bias=theta[13]))
                 # h_c = F.linear(h_c, theta[14], bias=theta[15])
-                v = pi[:, 0]*0#h_c[:, 0]
+                v = 0
+                # v = pi[:, 0]*0#h_c[:, 0]
             else:
                 h_a = self.activation_f(F.linear(h, self.theta[0], bias=self.theta[1]))
                 h_a = F.linear(h_a, self.theta[2], bias=self.theta[3])
