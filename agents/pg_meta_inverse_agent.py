@@ -14,7 +14,7 @@ PPO meta-agent
 """
 
 class Meta_PPO(nn.Module):
-    def __init__(self, params, logdir, device, adaptive_lr=False, load_pretrained=False):
+    def __init__(self, params, device, adaptive_lr=False, load_pretrained=False):
         super(Meta_PPO, self).__init__()
 
         self.action_dim = 4
@@ -29,24 +29,28 @@ class Meta_PPO(nn.Module):
 
         self.epsilon0 = 0.9
         self.epsilon = self.epsilon0
-        self.epsilon_adapt = params['eps_adapt'] #1.0 #0.5
-        self.epsilon_decay = 0.99 #0.85
+        self.epsilon_adapt = 1.0 #0.9
+        self.epsilon_adapt_decay = 1.0 #params['eps_adapt_decay']
+        self.epsilon_decay = 0.98 #0.85
 
         self.K = params['episode_per_update']
 
         # Init params and actor-critic policy networks, old_policy used for sampling, policy for training
-        self.lr = 0.0001
-        self.eps_clip = 0.1
+        self.lr = params['lr']
+        self.eps_clip = params['eps_clip']
         self.gamma = 0.9
         self.c1 = params['c1']
         self.c2 = params['c2']
+
+        self.kl = torch.nn.KLDivLoss(reduction='batchmean', log_target=True)
+        self.nu = params['kl_nu']
 
         self.ADAPTATION = 0
         self.EVALUATION = 1
 
         self.norm_A = params['norm_A']
 
-        self.policy = MamlParamsPPO(params['grid_size'], self.show_goal, self.inner_lr, model_type=params['model_type'], activation=params['activation'], adaptive_lr=adaptive_lr)
+        self.policy = MamlParamsPPO(params['grid_size'], self.show_goal, self.inner_lr, 0, 0, activation=params['activation'], adaptive_lr=adaptive_lr)
 
         self.grads_vals = np.zeros(len(self.policy.get_theta()))
 
@@ -66,6 +70,8 @@ class Meta_PPO(nn.Module):
     def update_epsilon(self, mode):
         if mode == self.EVALUATION:
             self.epsilon *= self.epsilon_decay
+        else:
+            self.epsilon *= self.epsilon_adapt_decay
 
     def get_action(self, state, theta=None, test=False):
         # Sample actions with epsilon greedy
@@ -83,12 +89,20 @@ class Meta_PPO(nn.Module):
 
         theta_i = self.policy.get_theta()
 
+        states = torch.cat([self.to_tensor(x) for x in self.batchdata.states], 0).detach()
+        actions = self.to_tensor(self.batchdata.actions).view(-1, 1).detach()
+        old_logprobs = torch.cat([x.view(1) for x in self.batchdata.old_logprobs])
         rtgs = self.to_tensor(calc_rtg(self.batchdata.rewards, self.batchdata.is_terminal, self.gamma))  # reward-to-go
         # Normalize rewards
-        logprobs = torch.cat([x.view(1) for x in self.batchdata.logprobs])
-        v = torch.cat([x.view(1) for x in self.batchdata.v])
+        logprobs, v, _ = self.policy.evaluate(states, actions[:,0], theta=theta_i)
 
-        loss_pi = (- rtgs * logprobs).mean()
+        last_trj = int(len(self.batchdata.states) * 9 / 10)
+        visited_states = np.concatenate(self.batchdata.states[last_trj:], 0)
+        img = np.sum(visited_states, 0)[1]
+
+        A = rtgs - v
+
+        loss_pi = (- torch.exp(logprobs - old_logprobs.detach()) * A.detach()).mean()  # (- rtgs * logprobs).mean() #
         loss_v = (self.c1*(v - rtgs)**2).mean()
         loss = loss_pi + loss_v
 
@@ -104,7 +118,7 @@ class Meta_PPO(nn.Module):
             theta_grad_s = torch.autograd.grad(outputs=loss, inputs=theta_i)
             theta_i = list(map(lambda p: p[1] - p[2] * p[0].detach(), zip(theta_grad_s, theta_i, self.policy.lr)))
 
-        return theta_i, loss.detach().cpu().item(), loss_pi.detach().cpu().item(), loss_v.detach().cpu().item()
+        return theta_i, loss.detach().cpu().item(), loss_pi.detach().cpu().item(), loss_v.detach().cpu().item(), img
 
     # def update_adaptation_batches(self):
     #
@@ -170,12 +184,13 @@ class Meta_PPO(nn.Module):
     #     self.writer.add_scalar('final_reward', r2, self.log_idx)
     #     self.log_idx += 1
 
-    def push_batchdata(self, st, a, logprob, v, r, done, st1):
+    def push_batchdata(self, st, a, logprob, old_logprob, v, r, done, st1):
         # adds a row of trajectory data to self.batchdata
         self.batchdata.states.append(st)
         self.batchdata.actions.append(a)
-        self.batchdata.logprobs.append(logprob)
-        self.batchdata.v.append(v)
+        self.batchdata.logprobs.append(logprob.detach())
+        self.batchdata.old_logprobs.append(old_logprob.detach())
+        self.batchdata.v.append(v if isinstance(v, int) else v.detach())
         self.batchdata.rewards.append(r)
         self.batchdata.is_terminal.append(done)
         self.batchdata.next_states.append(st1)
@@ -309,7 +324,7 @@ class PPO(nn.Module):
         # adds a row of trajectory data to self.batchdata
         self.batchdata.states.append(st)
         self.batchdata.actions.append(a)
-        self.batchdata.logprobs.append(logprob)
+        self.batchdata.logprobs.append(logprob.detach())
         self.batchdata.rewards.append(r)
         self.batchdata.is_terminal.append(done)
 

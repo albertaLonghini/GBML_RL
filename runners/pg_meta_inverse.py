@@ -6,6 +6,8 @@ from tqdm import tqdm
 import torch
 from torch import nn
 import time
+import glob
+import matplotlib.pyplot as plt
 
 from filtering_methods import random_filter, max_reward, state_frequencies, forward_prediction, max_inner_loss
 
@@ -75,7 +77,7 @@ def push_trajectories(agent, sim, N_trj, ratio_best_trj, T, theta_i=None, mode=0
             if t == T - 1:
                 done = True
 
-            temp_traj.append((st, a, logprob, v, r, done, st1))
+            temp_traj.append((st, a, logprob, logprob, v, r, done, st1))
 
             if done:
                 break
@@ -112,7 +114,7 @@ def push_trajectories(agent, sim, N_trj, ratio_best_trj, T, theta_i=None, mode=0
         num_optim_trj += temp_num_optim_trj[i]
         tot_rwd_trj += cumulative_rwds[i]
         for batch_data in temp_data[i]:
-            agent.push_batchdata(batch_data[0], batch_data[1], batch_data[2], batch_data[3], batch_data[4], batch_data[5], batch_data[6])
+            agent.push_batchdata(batch_data[0], batch_data[1], batch_data[2], batch_data[3], batch_data[4], batch_data[5], batch_data[6], batch_data[7])
 
     return tot_rwd_trj / N_best_trj, num_optim_trj
 
@@ -130,15 +132,75 @@ def simulate_trj(sim, agent, theta, path_len, test=True):
         if done:
             break
         st = st1
-    return tot_reward, r
+    return tot_reward, r, sim.get_distance()
 
 
 def inverse_meta_pg(params, logdir, device, writer):
 
+    starting_theta_stars = []
+    starting_starts = []
+    starting_goals = []
+    starting_mazes = []
+    starting_path_lens = []
+    for file in glob.glob("./saved_policies/*/*"):
+        numpy_file = np.load(file)
+        starting_theta_stars.append(numpy_file['arr_0'])  # np.reshape(numpy_file['arr_0'], (1, -1))
+        starting_starts.append(numpy_file['arr_1'])
+        starting_goals.append(numpy_file['arr_2'])
+        starting_mazes.append(numpy_file['arr_3'])
+        starting_path_lens.append(numpy_file['arr_4'])
+
     mazes = None
     paths_length = []
     maze_gen = Maze_Gen(params)
-    meta_agent = Meta_PPO(params, logdir, device, adaptive_lr=params['adaptive_lr']).to(device)
+    meta_agent = Meta_PPO(params, device, adaptive_lr=params['adaptive_lr']).to(device)
+
+
+
+    L_tot = 0
+    counter = 0
+    for epoch in range(1000):
+
+
+        for i in tqdm(range(len(starting_theta_stars))):
+            meta_agent.clear_batchdata()
+            sim = Simulator(tuple(starting_starts[i]), tuple(starting_goals[i]), starting_mazes[i], int(starting_path_lens[i]), params)
+            T_adapt = starting_path_lens[i] * params['horizon_multiplier_adaptation']
+            T = starting_path_lens[i] * params['horizon_multiplier']
+
+            # sample traj adaptation for each maze
+            _, _ = push_trajectories(meta_agent, sim, params['adaptation_trajectories'], params['adaptation_best_trajectories'], T_adapt, theta_i=None, mode=meta_agent.ADAPTATION, filter=params['filter_type'])
+
+            # adapt theta for each maze
+            theta_i, _, _, _, img = meta_agent.adapt(train=True, print_grads=False)
+
+            tot_reward, final_r, distance = simulate_trj(sim, meta_agent, theta_i, T, test=True)
+
+            theta_i_flat = torch.cat([t.view(-1) for t in theta_i])
+            theta_star_flat = torch.tensor(starting_theta_stars[i]).to(device).detach()
+
+            L = torch.mean((theta_i_flat - theta_star_flat)**2)
+            L_tot += L
+            counter += 1
+
+            writer.add_scalar("distance", distance, counter)
+            writer.add_scalar("loss", L.detach().cpu().item(), counter)
+
+
+            if counter % 100 == 99:
+                meta_agent.optimizer.zero_grad()
+                L_tot.backward()
+                meta_agent.optimizer.step()
+                L_tot = 0
+
+                writer.add_image("exploration_frq", torch.tensor(img), counter, dataformats='HW')
+
+
+    print()
+
+
+
+
 
     L_tot = 0
 
@@ -175,10 +237,11 @@ def inverse_meta_pg(params, logdir, device, writer):
             old_paths.append(paths)
 
         sim = Simulator(start, goal, maze, path_len, params)
+        T_adapt = path_len * params['horizon_multiplier_adaptation']
         T = path_len * params['horizon_multiplier']
 
         # sample traj adaptation for each maze
-        _, _ = push_trajectories(meta_agent, sim, params['adaptation_trajectories'], params['adaptation_best_trajectories'], T, theta_i=None, mode=meta_agent.ADAPTATION, optim_traj=paths, optimal=params['adaptation_optimal_traj'], filter=params['filter_type'])
+        _, _ = push_trajectories(meta_agent, sim, params['adaptation_trajectories'], params['adaptation_best_trajectories'], T_adapt, theta_i=None, mode=meta_agent.ADAPTATION, optim_traj=paths, optimal=params['adaptation_optimal_traj'], filter=params['filter_type'])
 
         # adapt theta for each maze
         theta_i, _, _, _ = meta_agent.adapt(train=True, print_grads=False)
@@ -234,7 +297,7 @@ def inverse_meta_pg(params, logdir, device, writer):
                     sim_j = Simulator(starts[j], goals[j], mazes[j], paths_length[j], params)
 
                     # sample traj adaptation for each maze
-                    mean_rwd_trj, num_opt_trj = push_trajectories(meta_agent, sim_j, params['adaptation_trajectories'], params['adaptation_best_trajectories'], T, theta_i=None, mode=meta_agent.ADAPTATION, optim_traj=paths, optimal=params['adaptation_optimal_traj'], filter=params['filter_type'])
+                    mean_rwd_trj, num_opt_trj = push_trajectories(meta_agent, sim_j, params['adaptation_trajectories'], params['adaptation_best_trajectories'], T_adapt, theta_i=None, mode=meta_agent.ADAPTATION, optim_traj=paths, optimal=params['adaptation_optimal_traj'], filter=params['filter_type'])
                     avg_mean_rwd_trj += mean_rwd_trj
                     avg_num_opt_trj += num_opt_trj
 

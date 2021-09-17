@@ -76,7 +76,7 @@ class PPO(nn.Module):
         self.MSE_loss = nn.MSELoss()  # to calculate critic loss
         # self.optimizer = Adam(self.policy.parameters(), lr=self.lr, eps=params['adam_epsilon'])
 
-        if self.dec_opt == 0:
+        if self.dec_opt == 0 and self.decouple_models == 0:
             self.model_parameters = self.policy.parameters()
             self.optimizer = Adam(self.model_parameters, lr=self.lr, eps=params['adam_epsilon'])
         else:
@@ -316,10 +316,14 @@ class PPO(nn.Module):
         self.batchdata[mode][idx].is_terminal.append(done)
         self.batchdata[mode][idx].next_states.append(st1)
 
-    def clear_batchdata(self):
-        for i in range(2):
-            for batchdata in self.batchdata[i]:
+    def clear_batchdata(self, idx=None):
+        if idx != None:
+            for batchdata in self.batchdata[idx]:
                 batchdata.clear()
+        else:
+            for i in range(2):
+                for batchdata in self.batchdata[i]:
+                    batchdata.clear()
 
     def to_tensor(self, array):
         if isinstance(array, np.ndarray):
@@ -485,7 +489,7 @@ class REINFORCE(nn.Module):
         self.batchdata[mode][idx].is_terminal.append(done)
         self.batchdata[mode][idx].next_states.append(st1)
 
-    def clear_batchdata(self):
+    def clear_batchdata(self, idx=None):
         for i in range(2):
             for batchdata in self.batchdata[i]:
                 batchdata.clear()

@@ -101,8 +101,8 @@ class Maze_Gen:
                     return tuple(goal)
         else:
             while True:
-                quadrant = np.random.randint(0, np.minimum(self.mods, 2))
-                i_s = [np.random.randint(1, np.clip(int(self.mods / 4) + np.clip(self.mods % 4 - 0, 0, 1), 1, T)),
+                quadrant = np.random.randint(0, np.minimum(self.mods, 4))
+                i_s = [np.random.randint(0, np.clip(int(self.mods / 4) + np.clip(self.mods % 4 - 0, 0, 1), 1, T)),
                        np.random.randint(0, np.clip(int(self.mods / 4) + np.clip(self.mods % 4 - 1, 0, 1), 1, T)),
                        np.random.randint(0, np.clip(int(self.mods / 4) + np.clip(self.mods % 4 - 2, 0, 1), 1, T)),
                        np.random.randint(0, np.clip(int(self.mods / 4) + np.clip(self.mods % 4 - 3, 0, 1), 1, T))]
