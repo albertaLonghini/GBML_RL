@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 import random
-from networks import MamlParamsPg, MamlParamsPPO, Forward_Predictor, Reward_Predictor
+from networks import MamlParamsPg, NormalMamlParamsPPO, Curiosity1MamlParamsPPO, Curiosity2MamlParamsPPO, Forward_Predictor, Reward_Predictor
 from utils import BatchData, calc_rtg
 import numpy as np
 from torch.optim import Adam, RMSprop, SGD
@@ -34,7 +34,7 @@ class PPO(nn.Module):
         self.epsilon = self.epsilon0
         self.epsilon_adapt = 0.9
         self.epsilon_adapt_decay = params['eps_adapt_decay']
-        self.epsilon_decay = 0.98 #0.85
+        self.epsilon_decay = 0.6 #0.85
 
         self.K = params['episode_per_update']
 
@@ -45,11 +45,9 @@ class PPO(nn.Module):
         self.c1 = params['c1']
         self.c2 = params['c2']
 
-
+        # Parameters for additive loss
         self.reg_l2 = params['reg_l2']
         self.cl2 = params['cl2']
-
-
 
         self.kl = torch.nn.KLDivLoss(reduction='batchmean', log_target=True)
         self.nu = params['kl_nu']
@@ -58,8 +56,10 @@ class PPO(nn.Module):
         self.inner_loss_type = params['inner_loss_type']
         self.idx_reward_pred = 0
         self.dec_opt = params['decoupled_optimization']
-
+        self.explorer_loss = params['explorer_loss']
         self.decouple_models = params['decoupled_explorer']
+        self.decouple_predictors = params['decoupled_predictors']
+        self.beta_model = params['beta_model']
 
         self.ADAPTATION = 0
         self.EVALUATION = 1
@@ -67,31 +67,78 @@ class PPO(nn.Module):
         self.norm_A = params['norm_A']
 
         self.grad_align = params['gradient_alignment']
-
-        self.policy = MamlParamsPPO(params['grid_size'], self.show_goal, self.inner_lr, params['inner_loss_type'], params['decoupled_explorer'], activation=params['activation'], adaptive_lr=adaptive_lr)
-
-        self.grads_vals = np.zeros(len(self.policy.get_theta()))
-
         self.cos = torch.nn.CosineSimilarity(dim=0, eps=1e-08)
         self.MSE_loss = nn.MSELoss()  # to calculate critic loss
-        # self.optimizer = Adam(self.policy.parameters(), lr=self.lr, eps=params['adam_epsilon'])
 
-        if self.dec_opt == 0 and self.decouple_models == 0:
+        if self.inner_loss_type == 0:
+            self.policy = NormalMamlParamsPPO(params, activation=params['activation'], adaptive_lr=adaptive_lr)
             self.model_parameters = self.policy.parameters()
-            self.optimizer = Adam(self.model_parameters, lr=self.lr, eps=params['adam_epsilon'])
+            self.main_optimizer = Adam(self.model_parameters, lr=self.lr, eps=params['adam_epsilon'])
         else:
-            psi_params = [param for param in self.policy.psi.parameters()]
-            z_params = [param for param in self.policy.z_0.parameters()]
-            theta_params = [param for param in self.policy.theta.parameters()]
+            if self.beta_model == 0:
+                self.policy = Curiosity1MamlParamsPPO(params, activation=params['activation'], adaptive_lr=adaptive_lr)
+            else:
+                self.policy = Curiosity2MamlParamsPPO(params, activation=params['activation'], adaptive_lr=adaptive_lr)
+
+            if self.decouple_models == 1:
+                self.psi_params = [param for param in self.policy.psi.parameters()]
+                self.optimizer_explorer = Adam(self.psi_params, lr=self.lr, eps=params['adam_epsilon'])
+
+            body_params = self.policy.params_to_adapt
             beta_params = [param for param in self.policy.beta.parameters()]
+            v_params = [param for param in self.policy.theta_v.parameters()]
             if adaptive_lr:
                 lr_params = [param for param in self.policy.lr.parameters()]
             else:
                 lr_params = []
-            self.model_parameters = z_params+theta_params+beta_params+lr_params
-            self.explorer_parameters = psi_params
-            self.optimizer_exploiter = Adam(self.model_parameters, lr=self.lr, eps=params['adam_epsilon'])
-            self.optimizer_explorer = Adam(psi_params, lr=self.lr, eps=params['adam_epsilon'])
+
+            if self.decouple_predictors == 1:
+                self.model_parameters = body_params + beta_params + v_params + lr_params
+            else:
+                self.model_parameters = body_params + v_params + lr_params
+                predictors_parameters = beta_params
+                self.optimizer_predictor = Adam(predictors_parameters, lr=self.lr, eps=params['adam_epsilon'])
+
+            # if self.dec_opt == 1:
+            #     self.optimizer_explorer = Adam(psi_params, lr=self.lr, eps=params['adam_epsilon'])
+            # else:
+            #     self.model_parameters += psi_params
+
+            self.main_optimizer = Adam(self.model_parameters, lr=self.lr, eps=params['adam_epsilon'])
+
+
+
+
+
+        self.grads_vals = np.zeros(len(self.policy.get_exploiter_starting_params()))
+
+        # if self.dec_opt == 0 and self.decouple_models == 0:  # TODO: optimizer_predictors in case decouple_predictors==1 even for this case?
+        #     if self.decouple_predictors == 1:
+        #         self.model_parameters = self.policy.parameters()
+        #         self.optimizer = Adam(self.model_parameters, lr=self.lr, eps=params['adam_epsilon'])
+        #     else:
+        #
+        # else:
+        #
+        #     psi_params = [param for param in self.policy.psi.parameters()]
+        #     body_params = self.policy.params_to_adapt
+        #     beta_params = [param for param in self.policy.beta.parameters()]
+        #     v_params = [param for param in self.policy.theta_v.parameters()]
+        #     if adaptive_lr:
+        #         lr_params = [param for param in self.policy.lr.parameters()]
+        #     else:
+        #         lr_params = []
+        #
+        #     if self.decouple_predictors == 1:
+        #         self.exploitation_parameters = body_params + beta_params + v_params + lr_params
+        #     else:
+        #         self.exploitation_parameters = body_params + v_params + lr_params
+        #         self.predictors_parameters = beta_params
+        #         self.optimizer_predictors = Adam(self.predictors_parameters, lr=self.lr, eps=params['adam_epsilon'])
+        #
+        #     self.explorer_parameters = psi_params
+        #     self.optimizer_exploiter = Adam(self.model_parameters, lr=self.lr, eps=params['adam_epsilon'])
+        #     self.optimizer_explorer = Adam(psi_params, lr=self.lr, eps=params['adam_epsilon'])
 
         if self.add_l2 == 1:
             self.reward_prediction_model = Reward_Predictor(params['grid_size'], self.show_goal)
@@ -99,7 +146,7 @@ class PPO(nn.Module):
 
         if params['filter_type'] == 4:
             self.forward_model = Forward_Predictor(params['grid_size'], self.show_goal)
-            self.optimizer_forward = Adam(self.forward_model.parameters(), lr=0.0001)
+            self.optimizer_forward = Adam(self.forward_model.parameters(), lr=0.0001)               # TODO: maybe try different values of lr
 
     def get_epsilon(self, mode=0):
         if mode == self.ADAPTATION:
@@ -127,63 +174,103 @@ class PPO(nn.Module):
 
         self.policy.train()
 
-        theta_i = self.policy.get_theta()
-
         if idx == 0 and print_grads:
             states = np.concatenate(self.batchdata[0][idx].states, 0)
             img = np.sum(states, 0)[1]
-            self.writer.add_image("exploration_frq", torch.tensor(img), self.log_frq_idx, dataformats='HW')
+            self.writer.add_image("exploration_visited", torch.tensor(img), self.log_frq_idx, dataformats='HW')
             self.log_frq_idx += 1
 
         rt = self.to_tensor(self.batchdata[0][idx].rewards)
+        rtgs = self.to_tensor(calc_rtg(rt, self.batchdata[0][idx].is_terminal, self.gamma))  # reward-to-go
         states = torch.cat([self.to_tensor(x) for x in self.batchdata[0][idx].states], 0).detach()
         actions = self.to_tensor(self.batchdata[0][idx].actions).view(-1, 1).detach()
-        # logprobs = torch.cat([x.view(1) for x in self.batchdata[0][idx].logprobs])
-        old_logprobs = torch.cat([x.view(1) for x in self.batchdata[0][idx].old_logprobs])
+        old_logprobs_explorer = torch.cat([x.view(1) for x in self.batchdata[0][idx].old_logprobs])
 
-        logprobs, v, _ = self.policy.evaluate(states, actions[:,0], theta=theta_i)
+        logprobs_explorer, v, _ = self.policy.evaluate(states, actions[:, 0])  # logprobs of explorer
 
-        if self.inner_loss_type == 0:
+        loss, loss_pi, loss_v, R_err = self.policy.get_adapt_loss(logprobs_explorer, old_logprobs_explorer, rt, rtgs, states, actions, v, self.c1)
 
-            rtgs = self.to_tensor(calc_rtg(rt, self.batchdata[0][idx].is_terminal, self.gamma))  # reward-to-go
-            # Normalize rewards
+        if self.decouple_predictors == 0 and self.inner_loss_type == 1:
+            rt_hat = self.policy.get_predicted_reward(states, actions, use_beta=True)
+            R_err_beta = ((rt - rt_hat) ** 2)
 
-            # v = torch.cat([x.view(1) for x in self.batchdata[0][idx].v])
-            A = rtgs - v
+            self.optimizer_predictor.zero_grad()
+            R_err_beta.mean().backward()
+            self.optimizer_predictor.step()
 
-            loss_pi = ( - torch.exp(logprobs - old_logprobs.detach()) * A.detach() ).mean()  # (- rtgs * logprobs).mean() # TODO: importance sampling / something to update psi
-            loss_v = (self.c1*(v - rtgs)**2).mean()
-            loss = loss_pi + loss_v
-            loss_pi = loss_pi.detach().cpu().item()
-            loss_v = loss_v.detach().cpu().item()
+            self.writer.add_scalar("Reward prediction loss", R_err_beta.mean().detach().cpu().numpy(), self.idx_reward_pred)
+            self.idx_reward_pred += 1
 
-        elif self.inner_loss_type == 1:
 
-            rt_hat = self.policy.get_predicted_reward(states, actions)
-            # loss = ((rt - rt_hat)**2).mean()
-            # TODO: doesn't work, psi doesn't get updated
-            R = ((rt - rt_hat) ** 2)
-            A = R #- v#.detach()
-            loss_pi = (- torch.exp(logprobs - old_logprobs.detach()) * A).mean()
-            # loss_v = ((R.detach()-v)**2).mean()
-            # logprobs, _, _ = self.policy.evaluate(states, actions[:,0])
-            loss = loss_pi #+ loss_v
-            loss_pi = loss_pi.detach().cpu().item()
-            loss_v = 0#loss_v.detach().cpu().item()
+
+
+
+        # theta_i = self.policy.get_theta()       # if self.beta_model == 1, this term is a list = [z_0, theta]
+        #
+        #
+        #
+        #
+        # rt = self.to_tensor(self.batchdata[0][idx].rewards)
+        # states = torch.cat([self.to_tensor(x) for x in self.batchdata[0][idx].states], 0).detach()
+        # actions = self.to_tensor(self.batchdata[0][idx].actions).view(-1, 1).detach()
+        # # logprobs = torch.cat([x.view(1) for x in self.batchdata[0][idx].logprobs])
+        # old_logprobs = torch.cat([x.view(1) for x in self.batchdata[0][idx].old_logprobs])
+        #
+        # if self.decouple_models == 1:
+        #     logprobs, v, _ = self.policy.evaluate(states, actions[:, 0])
+        # else:
+        #     logprobs, v, _ = self.policy.evaluate(states, actions[:, 0], theta=theta_i)
+        #
+        # inner_pred_MSE= 0
+        # if self.inner_loss_type == 0:
+        #
+        #     rtgs = self.to_tensor(calc_rtg(rt, self.batchdata[0][idx].is_terminal, self.gamma))  # reward-to-go
+        #     # Normalize rewards
+        #
+        #     # v = torch.cat([x.view(1) for x in self.batchdata[0][idx].v])
+        #     A = rtgs - v
+        #
+        #     loss_pi = ( - torch.exp(logprobs - old_logprobs.detach()) * A.detach()).mean()  # (- rtgs * logprobs).mean() # TODO: importance sampling / something to update psi
+        #     loss_v = (self.c1*(v - rtgs)**2).mean()
+        #     loss = loss_pi + loss_v
+        #     loss_pi = loss_pi.detach().cpu().item()
+        #     loss_v = loss_v.detach().cpu().item()
+        #
+        # elif self.inner_loss_type == 1:
+        #
+        #     rt_hat = self.policy.get_predicted_reward(states, actions)
+        #     # loss = ((rt - rt_hat)**2).mean()
+        #     R = ((rt - rt_hat) ** 2)
+        #
+        #     # train beta model with MSE
+        #
+        #     inner_pred_MSE = R.mean().detach().cpu().item()
+        #     A = R #- v#.detach()
+        #     loss_pi = (- torch.exp(logprobs - old_logprobs.detach()) * A).mean()
+        #     # loss_v = ((R.detach()-v)**2).mean()
+        #     # logprobs, _, _ = self.policy.evaluate(states, actions[:,0])
+        #     loss = loss_pi #+ loss_v
+        #     loss_pi = loss_pi.detach().cpu().item()
+        #     loss_v = 0#loss_v.detach().cpu().item()
 
         if train:
-            theta_grad_s = torch.autograd.grad(outputs=loss, inputs=theta_i, create_graph=True)
-            theta_i = list(map(lambda p: p[1] - p[2] * p[0], zip(theta_grad_s, theta_i, self.policy.lr)))
+            theta_grad_s = torch.autograd.grad(outputs=loss, inputs=self.policy.get_exploiter_starting_params(), create_graph=True)
+            theta_i = list(map(lambda p: p[1] - p[2] * p[0], zip(theta_grad_s, self.policy.get_exploiter_starting_params(), self.policy.lr)))
 
             if print_grads:
                 for i, grad in enumerate(theta_grad_s):
-                    self.grads_vals[i] += torch.mean(torch.abs(grad))
+                    self.grads_vals[i] += torch.mean(torch.abs(grad)).detach()
+
+            # if self.decouple_predictors == 0:
+            #     self.optimizer_predictor.zero_grad()
+            #     R_err.backward(retain_graph=True)
+            #     self.optimizer_predictor.step()
 
         else:
-            theta_grad_s = torch.autograd.grad(outputs=loss, inputs=theta_i)
-            theta_i = list(map(lambda p: p[1] - p[2] * p[0].detach(), zip(theta_grad_s, theta_i, self.policy.lr)))
+            theta_grad_s = torch.autograd.grad(outputs=loss, inputs=self.policy.get_exploiter_starting_params())
+            theta_i = list(map(lambda p: p[1] - p[2] * p[0].detach(), zip(theta_grad_s, self.policy.get_exploiter_starting_params(), self.policy.lr)))
 
-        return theta_i, loss.detach().cpu().item(), loss_pi, loss_v, theta_grad_s
+        return theta_i, loss.detach().cpu().item(), loss_pi, loss_v, theta_grad_s, R_err
 
     # def update_adaptation_batches(self):
     #
@@ -195,20 +282,20 @@ class PPO(nn.Module):
     #         batchdata.logprobs = [x.detach() for x in logprobs]
     #         batchdata.v = [x.detach() for x in state_vals]
 
-    def get_loss(self, theta_i, theta_0, idx, grads_adapt=None):
+    def get_loss(self, theta_i, theta_0, idx, last_iteration=False, grads_adapt=None):
         # get form correct batch old policy data
         rtgs = self.to_tensor(calc_rtg(self.batchdata[1][idx].rewards, self.batchdata[1][idx].is_terminal, self.gamma))  # reward-to-go
 
         old_states = torch.cat([self.to_tensor(x) for x in self.batchdata[1][idx].states], 0).detach()
         old_actions = self.to_tensor(self.batchdata[1][idx].actions).long().detach()
-        old_logprobs = torch.cat([x.view(1) for x in self.batchdata[1][idx].logprobs]).detach()
+        old_logprobs_exploiter = torch.cat([x.view(1) for x in self.batchdata[1][idx].logprobs]).detach()
 
         #get form correct batch new policy data
-        logprobs, state_vals, H = self.policy.evaluate(old_states, old_actions, theta=theta_i)
+        logprobs_exploiter, state_vals, H = self.policy.evaluate(old_states, old_actions, theta=theta_i)
 
         # Compute loss
         # Importance ratio
-        ratios = torch.exp(logprobs - old_logprobs.detach())  # new probs over old probs
+        ratios = torch.exp(logprobs_exploiter - old_logprobs_exploiter.detach())  # new probs over old probs
 
         # Calc advantages
         A = rtgs - state_vals
@@ -218,24 +305,24 @@ class PPO(nn.Module):
         # Actor loss using CLIP loss
         surr1 = ratios * A
         surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * A
-        actor_loss = torch.mean(- torch.min(surr1, surr2) )  # minus to maximize
+        actor_loss = torch.mean(- torch.min(surr1, surr2))  # minus to maximize
 
         # Critic loss fitting to reward-to-go with entropy bonus
         critic_loss = self.c1 * self.MSE_loss(rtgs, state_vals)
 
         loss = actor_loss + critic_loss - self.c2 * H.mean()
 
-        if theta_0 is not None:
-            log_pi_theta, _, _ = self.policy.evaluate(old_states, old_actions, theta=self.policy.get_theta())
+        if theta_0 is not None:  # TODO: can theta_0 be None
+            log_pi_theta, _, _ = self.policy.evaluate(old_states, old_actions, theta=self.policy.get_exploiter_starting_params())
             log_pi_theta_0, _, _ = self.policy.evaluate(old_states, old_actions, theta=theta_0)
             loss += self.nu * self.kl(log_pi_theta, log_pi_theta_0.detach())
 
         loss_2 = 0
-        if self.add_l2 == 1:
+        if self.add_l2 == 1 and last_iteration:
             loss_2 = self.get_l2(self.batchdata[0][idx])
 
         if self.grad_align == 1:
-            grads_evaluate = torch.autograd.grad(outputs=(actor_loss + critic_loss), inputs=theta_i, retain_graph=True)
+            grads_evaluate = torch.autograd.grad(outputs=actor_loss, inputs=theta_i, retain_graph=True)
             cosine_sim = self.cos(torch.cat([x.view(-1) for x in grads_evaluate]), torch.cat([x.view(-1) for x in grads_adapt]))
 
             # loss -= 100. * gradient_loss
@@ -251,23 +338,27 @@ class PPO(nn.Module):
         states = torch.cat([self.to_tensor(x) for x in D.states], 0).detach()
         next_states = torch.cat([self.to_tensor(x) for x in D.next_states], 0).detach()
         actions = self.to_tensor(D.actions).view(-1, 1).detach()
-        # logprobs = torch.cat([x.view(1) for x in D.logprobs])
 
-        logprobs, _, _ = self.policy.evaluate(states, actions[:, 0])
+        logprobs_explorer, _, dist_entropy = self.policy.evaluate(states, actions[:, 0])
 
-        rt_pred = self.reward_prediction_model(states, actions)
-        rt_hat = (rt - rt_pred)**2
+        if self.decouple_predictors == 1:
+            rt_pred = self.reward_prediction_model(states, actions)
+            rt_hat = (rt - rt_pred) ** 2
+
+            self.optimizer_curiosity.zero_grad()
+            rt_hat.mean().backward()
+            self.optimizer_curiosity.step()
+
+            self.writer.add_scalar("Reward prediction loss", rt_hat.mean().detach().cpu().numpy(), self.idx_reward_pred)
+            self.idx_reward_pred += 1
+        else:
+            rt_pred = self.policy.get_predicted_reward(states, actions)
+            rt_hat = (rt - rt_pred) ** 2
+
         # rt_hat_var = ((rt_hat - rt_hat.mean()) ** 2).mean()  # todo: variance of the rewards
         # rt_hat_mean = rt_hat.mean()
         # if self.reg_l2 ==1:
         #     rt_hat_mean += rt_hat_var
-
-        self.optimizer_curiosity.zero_grad()
-        rt_hat.mean().backward()
-        self.optimizer_curiosity.step()
-
-        self.writer.add_scalar("Reward prediction loss", rt_hat.mean().detach().cpu().numpy(), self.idx_reward_pred)
-        self.idx_reward_pred += 1
 
         # unique_states = []
         # zero_out = []
@@ -280,11 +371,20 @@ class PPO(nn.Module):
         #         unique_states.append(state)
         #         zero_out.append(1)
 
-        rt_hat_zero_out = rt_hat.detach().cpu().numpy()# * np.array(zero_out)
+        if self.explorer_loss == 0:
+            rt_hat_zero_out = rt_hat.detach().cpu().numpy()# * np.array(zero_out)
+            rtgs = self.to_tensor(calc_rtg(rt_hat_zero_out, D.is_terminal, self.gamma))  # reward-to-go £
+            return self.cl2*(- logprobs_explorer * rtgs.detach()).mean()
 
-        rtgs = self.to_tensor(calc_rtg(rt_hat_zero_out, D.is_terminal, self.gamma))  # reward-to-go £
+        if self.explorer_loss == 1:
+            entropy_coefficient = 0.01
+            return self.cl2*(-entropy_coefficient*dist_entropy.mean())
 
-        return self.cl2*(- logprobs * rtgs.detach()).mean()
+        if self.explorer_loss == 2:
+            entropy_coefficient = 0.001
+            rt_hat_zero_out = rt_hat.detach().cpu().numpy()  # * np.array(zero_out)
+            rtgs = self.to_tensor(calc_rtg(rt_hat_zero_out, D.is_terminal, self.gamma))  # reward-to-go £
+            return self.cl2 * ((- logprobs_explorer * rtgs.detach()).mean() - entropy_coefficient*dist_entropy.mean())
 
     def save_model(self, filepath='./ppo_model.pth'):  # TODO filename param
         torch.save(self.policy.state_dict(), filepath)

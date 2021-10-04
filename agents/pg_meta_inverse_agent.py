@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 import random
-from networks import MamlParamsPg, MamlParamsPPO, Forward_Predictor, ActorCritic, ActorCriticMAML
+from networks import MamlParamsPg, NormalMamlParamsPPO, Forward_Predictor, ActorCritic, ActorCriticMAML
 from utils import BatchData, calc_rtg
 import numpy as np
 from torch.optim import Adam, RMSprop, SGD

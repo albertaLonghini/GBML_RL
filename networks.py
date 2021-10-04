@@ -241,12 +241,267 @@ class MamlParamsPg(nn.Module):
 Maml-PPO
 '''
 
-class MamlParamsPPO(nn.Module):
 
-    def __init__(self, grid_size, show_goal, lr, inner_loss_type, decouple_explorer, activation='tanh', adaptive_lr=False):
-        super(MamlParamsPPO, self).__init__()
 
-        self.inner_loss_type = inner_loss_type
+
+# class MamlParamsPPO(nn.Module):
+#
+#     def __init__(self, params, activation='tanh', adaptive_lr=False):
+#         super(MamlParamsPPO, self).__init__()
+#         grid_size = params['grid_size']
+#         show_goal = params['show_goal']
+#         lr = params['inner_lr']
+#         self.beta_model = params['beta_model']
+#
+#         self.inner_loss_type = params['inner_loss_type']
+#         self.decoupled_reward = params['decoupled_predictors']
+#
+#         self.img_reduced_dim = grid_size + 2 - 2 * 4
+#         if show_goal == 0:
+#             n_filters = 2
+#         else:
+#             n_filters = 3
+#
+#         if activation == 'tanh':
+#             self.activation_f = nn.Tanh()
+#         elif activation == 'relu':
+#             self.activation_f = nn.ReLU()
+#         elif activation == 'leaky_relu':
+#             self.activation_f = nn.LeakyReLU()
+#
+#         self.decouple_explorer = params['decoupled_explorer']
+#         if self.decouple_explorer == 1:
+#             self.psi_shapes = [[4, n_filters, 3, 3], [4],
+#                                [4, 4, 3, 3], [4],
+#                                [4, 4, 3, 3], [4],
+#                                [4, 4, 3, 3], [4],
+#                                [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+#                                [4, 32], [4],
+#                                # [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+#                                # [1, 32], [1],
+#                               ]
+#             self.psi = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.psi_shapes])
+#             for i in range(len(self.psi)):
+#                 if self.psi[i].dim() > 1:
+#                     torch.nn.init.kaiming_uniform_(self.psi[i])
+#
+#         if self.inner_loss_type == 1:
+#             # beta connected with just z_0
+#             if self.beta_model == 0:
+#                 self.z_shapes = [[4, n_filters, 3, 3], [4],
+#                                  [4, 4, 3, 3], [4],
+#                                  [4, 4, 3, 3], [4],
+#                                  [4, 4, 3, 3], [4],
+#                                  ]
+#                 self.theta_shapes = [[32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+#                                     [4, 32], [4],
+#                                    ]
+#                 self.theta_v_shapes =  [
+#                                     [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+#                                     [1, 32], [1],
+#                                 ]
+#                 self.beta_shapes = [[32, (self.img_reduced_dim * self.img_reduced_dim * 4)+1], [32],
+#                                    [1, 32], [1],
+#                                   ]
+#                 self.z_0 = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.z_shapes])
+#                 for i in range(len(self.z_0)):
+#                     if self.z_0[i].dim() > 1:
+#                         torch.nn.init.kaiming_uniform_(self.z_0[i])
+#
+#             # Beta is connected with theta and z_0
+#             if self.beta_model == 1:
+#                 self.theta_shapes = [[4, n_filters, 3, 3], [4],
+#                                      [4, 4, 3, 3], [4],
+#                                      [4, 4, 3, 3], [4],
+#                                      [4, 4, 3, 3], [4],
+#                                      [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+#                                      [4, 32], [4],
+#                                      ]
+#                 self.theta_v_shapes = [
+#                                     [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+#                                     [1, 32], [1],
+#                                 ]
+#                 self.beta_shapes = [[32, (self.img_reduced_dim * self.img_reduced_dim * 4) + 1+ 4], [32],
+#                                     [1, 32], [1],
+#                                     ]
+#             self.theta = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.theta_shapes])
+#             self.theta_v = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.theta_v_shapes])
+#             self.beta = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.beta_shapes])
+#
+#             for i in range(len(self.theta)):
+#                 if self.theta[i].dim() > 1:
+#                     torch.nn.init.kaiming_uniform_(self.theta[i])
+#             for i in range(len(self.theta_v)):
+#                 if self.theta_v[i].dim() > 1:
+#                     torch.nn.init.kaiming_uniform_(self.theta_v[i])
+#             for i in range(len(self.beta)):
+#                 if self.beta[i].dim() > 1:
+#                     torch.nn.init.kaiming_uniform_(self.beta[i])
+#         else:
+#             self.theta_shapes = [[4, n_filters, 3, 3], [4],
+#                                  [4, 4, 3, 3], [4],
+#                                  [4, 4, 3, 3], [4],
+#                                  [4, 4, 3, 3], [4],
+#                                  [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+#                                  [4, 32], [4],
+#                                  [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+#                                  [1, 32], [1],
+#                                  ]
+#             self.theta_0 = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.theta_shapes])
+#             for i in range(len(self.theta_0)):
+#                 if self.theta_0[i].dim() > 1:
+#                     torch.nn.init.kaiming_uniform_(self.theta_0[i])
+#
+#         if adaptive_lr:
+#             self.lr = nn.ParameterList([nn.Parameter(torch.tensor(lr))] * len(self.theta_shapes))
+#         else:
+#             self.lr = [lr] * len(self.theta_shapes)
+#
+#     def get_theta(self):
+#         if self.inner_loss_type == 0:
+#             return self.theta_0
+#         elif self.inner_loss_type == 1:
+#             if self.beta_model == 0:
+#                 return self.z_0
+#             else:
+#                 return self.theta                  # TODO: is this a good way to pass the models
+#
+#     def f_theta(self, x, theta=None):
+#
+#         if self.inner_loss_type == 0:
+#             if theta is None:
+#                 theta = self.theta_0
+#                 if self.decouple_explorer == 1:
+#                     # theta = self.psi
+#                     print("ERROR - Wrong combination of parameters")
+#                     exit()
+#
+#             h = self.activation_f(F.conv2d(x, theta[0], bias=theta[1], stride=1, padding=0))
+#             h = self.activation_f(F.conv2d(h, theta[2], bias=theta[3], stride=1, padding=0))
+#             h = self.activation_f(F.conv2d(h, theta[4], bias=theta[5], stride=1, padding=0))
+#             h = self.activation_f(F.conv2d(h, theta[6], bias=theta[7], stride=1, padding=0))
+#             h = h.contiguous()
+#             h = h.view(-1, (self.img_reduced_dim * self.img_reduced_dim * 4))
+#             h_a = self.activation_f(F.linear(h, theta[8], bias=theta[9]))
+#             h_a = F.linear(h_a, theta[10], bias=theta[11])
+#             pi = F.softmax(h_a, -1)
+#             h_c = self.activation_f(F.linear(h, theta[12], bias=theta[13]))
+#             h_c = F.linear(h_c, theta[14], bias=theta[15])
+#             v = h_c[:, 0]
+#
+#         elif self.inner_loss_type == 1:
+#
+#             decoupled_exploration = False
+#             if theta is None:
+#                 if self.beta_model == 0:
+#                     theta = self.z_0
+#                 else:
+#                     theta = self.theta
+#                 theta_v = self.theta_v
+#                 if self.decouple_explorer == 1:
+#                     theta = self.psi
+#                     decoupled_exploration = True
+#
+#
+#             h = self.activation_f(F.conv2d(x, theta[0], bias=theta[1], stride=1, padding=0))
+#             h = self.activation_f(F.conv2d(h, theta[2], bias=theta[3], stride=1, padding=0))
+#             h = self.activation_f(F.conv2d(h, theta[4], bias=theta[5], stride=1, padding=0))
+#             h = self.activation_f(F.conv2d(h, theta[6], bias=theta[7], stride=1, padding=0))
+#             h = h.contiguous()
+#             h = h.view(-1, (self.img_reduced_dim * self.img_reduced_dim * 4))
+#
+#             if decoupled_exploration:
+#                 h_a = self.activation_f(F.linear(h, theta[8], bias=theta[9]))
+#                 h_a = F.linear(h_a, theta[10], bias=theta[11])
+#                 pi = F.softmax(h_a, -1)
+#                 # h_c = self.activation_f(F.linear(h, theta[12], bias=theta[13]))
+#                 # h_c = F.linear(h_c, theta[14], bias=theta[15])
+#                 v = 0
+#                 # v = pi[:, 0]*0#h_c[:, 0]
+#             else:
+#                 if self.beta_model == 0:
+#                     h_a = self.activation_f(F.linear(h, self.theta[0], bias=self.theta[1]))
+#                     h_a = F.linear(h_a, self.theta[2], bias=self.theta[3])
+#                     pi = F.softmax(h_a, -1)
+#                 else:
+#                     h_a = self.activation_f(F.linear(h, theta[8], bias=theta[9]))
+#                     h_a = F.linear(h_a, theta[10], bias=theta[11])
+#                     pi = F.softmax(h_a, -1)
+#
+#                 h_c = self.activation_f(F.linear(h, self.theta_v[0], bias=self.theta_v[1]))
+#                 h_c = F.linear(h_c, self.theta_v[2], bias=self.theta_v[3])
+#                 v = h_c[:, 0]
+#
+#         return pi, v
+#
+#     def get_predicted_reward(self, x, a):
+#         if self.beta_model == 0:
+#             h = self.activation_f(F.conv2d(x, self.z_0[0], bias=self.z_0[1], stride=1, padding=0))
+#             h = self.activation_f(F.conv2d(h, self.z_0[2], bias=self.z_0[3], stride=1, padding=0))
+#             h = self.activation_f(F.conv2d(h, self.z_0[4], bias=self.z_0[5], stride=1, padding=0))
+#             h = self.activation_f(F.conv2d(h, self.z_0[6], bias=self.z_0[7], stride=1, padding=0))
+#             h = h.contiguous()
+#             h = h.view(-1, (self.img_reduced_dim * self.img_reduced_dim * 4))
+#             h = torch.cat([h, a], -1)
+#             h_r = self.activation_f(F.linear(h, self.beta[0], bias=self.beta[1]))
+#             h_r = F.linear(h_r, self.beta[2], bias=self.beta[3])
+#
+#         else:
+#             # pass through z_0
+#             h = self.activation_f(F.conv2d(x, self.theta[0], bias=self.theta[1], stride=1, padding=0))
+#             h = self.activation_f(F.conv2d(h, self.theta[2], bias=self.theta[3], stride=1, padding=0))
+#             h = self.activation_f(F.conv2d(h, self.theta[4], bias=self.theta[5], stride=1, padding=0))
+#             h = self.activation_f(F.conv2d(h, self.theta[6], bias=self.theta[7], stride=1, padding=0))
+#             h = h.contiguous()
+#             h = h.view(-1, (self.img_reduced_dim * self.img_reduced_dim * 4))
+#
+#             # pass through theta
+#             h_a = self.activation_f(F.linear(h, self.theta[8], bias=self.theta[9]))
+#             h_a = F.linear(h_a, self.theta[10], bias=self.theta[11])
+#
+#             h = torch.cat([h, a, h_a], -1)
+#
+#             h_r = self.activation_f(F.linear(h, self.beta[0], bias=self.beta[1]))
+#             h_r = F.linear(h_r, self.beta[2], bias=self.beta[3])
+#
+#         return h_r[:, 0]
+#
+#     def forward(self, x, theta=None):
+#
+#         pi, v = self.f_theta(x, theta=theta)
+#
+#         dist = Categorical(pi)
+#         action = dist.sample()
+#         action_logprob = dist.log_prob(action)
+#
+#         return action.item(), action_logprob, v
+#
+#     def evaluate(self, x, action, theta=None):
+#
+#         pi, v = self.f_theta(x, theta=theta)
+#
+#         if torch.is_tensor(action):
+#             action = action.tolist()
+#         else:
+#             action = [action]
+#
+#         action_logprobs = torch.log(torch.clamp(pi[range(len(action)), action], min=1e-10))
+#
+#         dist = Categorical(pi)
+#         dist_entropy = dist.entropy()
+#
+#         return action_logprobs, v, dist_entropy
+
+
+class Curiosity2MamlParamsPPO(nn.Module):
+
+    def __init__(self, params, activation='tanh', adaptive_lr=False):
+        super(Curiosity2MamlParamsPPO, self).__init__()
+        grid_size = params['grid_size']
+        show_goal = params['show_goal']
+        lr = params['inner_lr']
+
+        self.decoupled_reward = params['decoupled_predictors']
 
         self.img_reduced_dim = grid_size + 2 - 2 * 4
         if show_goal == 0:
@@ -261,7 +516,7 @@ class MamlParamsPPO(nn.Module):
         elif activation == 'leaky_relu':
             self.activation_f = nn.LeakyReLU()
 
-        self.decouple_explorer = decouple_explorer
+        self.decouple_explorer = params['decoupled_explorer']
         if self.decouple_explorer == 1:
             self.psi_shapes = [[4, n_filters, 3, 3], [4],
                                [4, 4, 3, 3], [4],
@@ -269,134 +524,104 @@ class MamlParamsPPO(nn.Module):
                                [4, 4, 3, 3], [4],
                                [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
                                [4, 32], [4],
-                               # [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
-                               # [1, 32], [1],
                               ]
             self.psi = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.psi_shapes])
             for i in range(len(self.psi)):
                 if self.psi[i].dim() > 1:
                     torch.nn.init.kaiming_uniform_(self.psi[i])
 
-        if self.inner_loss_type == 1:
-            self.z_shapes = [[4, n_filters, 3, 3], [4],
+        self.theta_shapes = [[4, n_filters, 3, 3], [4],
                              [4, 4, 3, 3], [4],
                              [4, 4, 3, 3], [4],
                              [4, 4, 3, 3], [4],
-                             ]
-            self.theta_shapes = [[32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
-                                [4, 32], [4],
-                                [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
-                                [1, 32], [1],
-                               ]
-            self.beta_shapes = [[32, (self.img_reduced_dim * self.img_reduced_dim * 4)+1], [32],
-                               [1, 32], [1],
-                              ]
-            self.z_0 = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.z_shapes])
-            self.theta = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.theta_shapes])
-            self.beta = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.beta_shapes])
-            for i in range(len(self.z_0)):
-                if self.z_0[i].dim() > 1:
-                    torch.nn.init.kaiming_uniform_(self.z_0[i])
-            for i in range(len(self.theta)):
-                if self.theta[i].dim() > 1:
-                    torch.nn.init.kaiming_uniform_(self.theta[i])
-            for i in range(len(self.beta)):
-                if self.beta[i].dim() > 1:
-                    torch.nn.init.kaiming_uniform_(self.beta[i])
-        else:
-            self.theta_shapes = [[4, n_filters, 3, 3], [4],
-                                 [4, 4, 3, 3], [4],
-                                 [4, 4, 3, 3], [4],
-                                 [4, 4, 3, 3], [4],
-                                 [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
-                                 [4, 32], [4],
-                                 [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
-                                 [1, 32], [1],
-                                 ]
-            self.theta_0 = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.theta_shapes])
-            for i in range(len(self.theta_0)):
-                if self.theta_0[i].dim() > 1:
-                    torch.nn.init.kaiming_uniform_(self.theta_0[i])
+                             [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+                             [4, 32], [4]]
+        self.theta_v_shapes = [[32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+                               [1, 32], [1]]
+        self.beta_shapes = [[32, (self.img_reduced_dim * self.img_reduced_dim * 4) + 1 + 4], [32],
+                            [1, 32], [1]]
+        self.theta = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.theta_shapes])
+        self.theta_v = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.theta_v_shapes])
+        self.beta = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.beta_shapes])
+
+        for i in range(len(self.theta)):
+            if self.theta[i].dim() > 1:
+                torch.nn.init.kaiming_uniform_(self.theta[i])
+        for i in range(len(self.theta_v)):
+            if self.theta_v[i].dim() > 1:
+                torch.nn.init.kaiming_uniform_(self.theta_v[i])
+        for i in range(len(self.beta)):
+            if self.beta[i].dim() > 1:
+                torch.nn.init.kaiming_uniform_(self.beta[i])
+
+        if self.decoupled_reward == 0:
+            self.beta_tmp = nn.ParameterList([nn.Parameter(x.detach().clone()) for x in self.beta])
 
         if adaptive_lr:
             self.lr = nn.ParameterList([nn.Parameter(torch.tensor(lr))] * len(self.theta_shapes))
         else:
             self.lr = [lr] * len(self.theta_shapes)
 
-    def get_theta(self):
-        if self.inner_loss_type == 0:
-            return self.theta_0
-        elif self.inner_loss_type == 1:
-            return self.z_0
+        self.params_to_adapt = [param for param in self.theta.parameters()]
+
+    def get_explorer_params(self):
+        if self.decouple_explorer:
+            return self.psi
+        return self.theta
+
+    def get_exploiter_starting_params(self):
+        return self.theta
 
     def f_theta(self, x, theta=None):
 
-        if self.inner_loss_type == 0:
-            if theta is None:
-                theta = self.theta_0
-                if self.decouple_explorer == 1:
-                    # theta = self.psi
-                    print("ERROR - Wrong combination of parameters")
-                    exit()
+        decoupled_exploration = False
+        if theta is None:
+            theta = self.theta
+            if self.decouple_explorer == 1:
+                theta = self.psi
+                decoupled_exploration = True
 
-            h = self.activation_f(F.conv2d(x, theta[0], bias=theta[1], stride=1, padding=0))
-            h = self.activation_f(F.conv2d(h, theta[2], bias=theta[3], stride=1, padding=0))
-            h = self.activation_f(F.conv2d(h, theta[4], bias=theta[5], stride=1, padding=0))
-            h = self.activation_f(F.conv2d(h, theta[6], bias=theta[7], stride=1, padding=0))
-            h = h.contiguous()
-            h = h.view(-1, (self.img_reduced_dim * self.img_reduced_dim * 4))
-            h_a = self.activation_f(F.linear(h, theta[8], bias=theta[9]))
-            h_a = F.linear(h_a, theta[10], bias=theta[11])
-            pi = F.softmax(h_a, -1)
-            h_c = self.activation_f(F.linear(h, theta[12], bias=theta[13]))
-            h_c = F.linear(h_c, theta[14], bias=theta[15])
+        h = self.activation_f(F.conv2d(x, theta[0], bias=theta[1], stride=1, padding=0))
+        h = self.activation_f(F.conv2d(h, theta[2], bias=theta[3], stride=1, padding=0))
+        h = self.activation_f(F.conv2d(h, theta[4], bias=theta[5], stride=1, padding=0))
+        h = self.activation_f(F.conv2d(h, theta[6], bias=theta[7], stride=1, padding=0))
+        h = h.contiguous()
+        h = h.view(-1, (self.img_reduced_dim * self.img_reduced_dim * 4))
+        h_a = self.activation_f(F.linear(h, theta[8], bias=theta[9]))
+        h_a = F.linear(h_a, theta[10], bias=theta[11])
+        pi = F.softmax(h_a, -1)
+
+        if decoupled_exploration:
+            v = 0
+        else:
+            h_c = self.activation_f(F.linear(h, self.theta_v[0], bias=self.theta_v[1]))
+            h_c = F.linear(h_c, self.theta_v[2], bias=self.theta_v[3])
             v = h_c[:, 0]
-
-        elif self.inner_loss_type == 1:
-
-            decoupled_exploration = False
-            if theta is None:
-                theta = self.z_0
-                if self.decouple_explorer == 1:
-                    theta = self.psi
-                    decoupled_exploration = True
-
-            h = self.activation_f(F.conv2d(x, theta[0], bias=theta[1], stride=1, padding=0))
-            h = self.activation_f(F.conv2d(h, theta[2], bias=theta[3], stride=1, padding=0))
-            h = self.activation_f(F.conv2d(h, theta[4], bias=theta[5], stride=1, padding=0))
-            h = self.activation_f(F.conv2d(h, theta[6], bias=theta[7], stride=1, padding=0))
-            h = h.contiguous()
-            h = h.view(-1, (self.img_reduced_dim * self.img_reduced_dim * 4))
-
-            if decoupled_exploration:
-                h_a = self.activation_f(F.linear(h, theta[8], bias=theta[9]))
-                h_a = F.linear(h_a, theta[10], bias=theta[11])
-                pi = F.softmax(h_a, -1)
-                # h_c = self.activation_f(F.linear(h, theta[12], bias=theta[13]))
-                # h_c = F.linear(h_c, theta[14], bias=theta[15])
-                v = 0
-                # v = pi[:, 0]*0#h_c[:, 0]
-            else:
-                h_a = self.activation_f(F.linear(h, self.theta[0], bias=self.theta[1]))
-                h_a = F.linear(h_a, self.theta[2], bias=self.theta[3])
-                pi = F.softmax(h_a, -1)
-                h_c = self.activation_f(F.linear(h, self.theta[4], bias=self.theta[5]))
-                h_c = F.linear(h_c, self.theta[6], bias=self.theta[7])
-                v = h_c[:, 0]
 
         return pi, v
 
-    def get_predicted_reward(self, x, a):
+    def get_predicted_reward(self, x, a, use_beta=False):
 
-        h = self.activation_f(F.conv2d(x, self.z_0[0], bias=self.z_0[1], stride=1, padding=0))
-        h = self.activation_f(F.conv2d(h, self.z_0[2], bias=self.z_0[3], stride=1, padding=0))
-        h = self.activation_f(F.conv2d(h, self.z_0[4], bias=self.z_0[5], stride=1, padding=0))
-        h = self.activation_f(F.conv2d(h, self.z_0[6], bias=self.z_0[7], stride=1, padding=0))
+        beta = self.beta
+        if not use_beta and self.decoupled_reward == 0:
+            beta = self.beta_tmp
+
+        # pass through z_0
+        h = self.activation_f(F.conv2d(x, self.theta[0], bias=self.theta[1], stride=1, padding=0))
+        h = self.activation_f(F.conv2d(h, self.theta[2], bias=self.theta[3], stride=1, padding=0))
+        h = self.activation_f(F.conv2d(h, self.theta[4], bias=self.theta[5], stride=1, padding=0))
+        h = self.activation_f(F.conv2d(h, self.theta[6], bias=self.theta[7], stride=1, padding=0))
         h = h.contiguous()
         h = h.view(-1, (self.img_reduced_dim * self.img_reduced_dim * 4))
-        h = torch.cat([h, a], -1)
-        h_r = self.activation_f(F.linear(h, self.beta[0], bias=self.beta[1]))
-        h_r = F.linear(h_r, self.beta[2], bias=self.beta[3])
+
+        # pass through theta
+        h_a = self.activation_f(F.linear(h, self.theta[8], bias=self.theta[9]))
+        h_a = F.linear(h_a, self.theta[10], bias=self.theta[11])
+
+        h = torch.cat([h, a, h_a], -1)
+
+        h_r = self.activation_f(F.linear(h, beta[0], bias=beta[1]))
+        h_r = F.linear(h_r, beta[2], bias=beta[3])
 
         return h_r[:, 0]
 
@@ -425,6 +650,292 @@ class MamlParamsPPO(nn.Module):
         dist_entropy = dist.entropy()
 
         return action_logprobs, v, dist_entropy
+
+    def get_adapt_loss(self, logprobs, old_logprobs, rt, R, st, at, V, c1):
+
+        rt_hat = self.get_predicted_reward(st, at)
+        R_err = ((rt - rt_hat) ** 2)
+
+        loss_pi = (- torch.exp(logprobs - old_logprobs.detach()) * R_err).mean()
+        loss = loss_pi
+
+        return loss, loss_pi.detach().cpu().item(), 0, R_err.mean().detach().cpu().item()
+
+
+class Curiosity1MamlParamsPPO(nn.Module):
+
+    def __init__(self, params, activation='tanh', adaptive_lr=False):
+        super(Curiosity1MamlParamsPPO, self).__init__()
+        grid_size = params['grid_size']
+        show_goal = params['show_goal']
+        lr = params['inner_lr']
+
+        self.decoupled_reward = params['decoupled_predictors']
+
+        self.img_reduced_dim = grid_size + 2 - 2 * 4
+        if show_goal == 0:
+            n_filters = 2
+        else:
+            n_filters = 3
+
+        if activation == 'tanh':
+            self.activation_f = nn.Tanh()
+        elif activation == 'relu':
+            self.activation_f = nn.ReLU()
+        elif activation == 'leaky_relu':
+            self.activation_f = nn.LeakyReLU()
+
+        self.decouple_explorer = params['decoupled_explorer']
+        if self.decouple_explorer == 1:
+            self.psi_shapes = [[4, n_filters, 3, 3], [4],
+                               [4, 4, 3, 3], [4],
+                               [4, 4, 3, 3], [4],
+                               [4, 4, 3, 3], [4],
+                               [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+                               [4, 32], [4]]
+            self.psi = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.psi_shapes])
+            for i in range(len(self.psi)):
+                if self.psi[i].dim() > 1:
+                    torch.nn.init.kaiming_uniform_(self.psi[i])
+
+        self.z_shapes = [[4, n_filters, 3, 3], [4],
+                         [4, 4, 3, 3], [4],
+                         [4, 4, 3, 3], [4],
+                         [4, 4, 3, 3], [4]]
+        self.theta_shapes = [[32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+                             [4, 32], [4]]
+        self.theta_v_shapes = [[32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+                               [1, 32], [1]]
+        self.beta_shapes = [[32, (self.img_reduced_dim * self.img_reduced_dim * 4)+1], [32],
+                            [1, 32], [1]]
+        self.z_0 = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.z_shapes])
+        self.theta = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.theta_shapes])
+        self.theta_v = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.theta_v_shapes])
+        self.beta = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.beta_shapes])
+
+        for i in range(len(self.z_0)):
+            if self.z_0[i].dim() > 1:
+                torch.nn.init.kaiming_uniform_(self.z_0[i])
+        for i in range(len(self.theta)):
+            if self.theta[i].dim() > 1:
+                torch.nn.init.kaiming_uniform_(self.theta[i])
+        for i in range(len(self.theta_v)):
+            if self.theta_v[i].dim() > 1:
+                torch.nn.init.kaiming_uniform_(self.theta_v[i])
+        for i in range(len(self.beta)):
+            if self.beta[i].dim() > 1:
+                torch.nn.init.kaiming_uniform_(self.beta[i])
+
+        if self.decoupled_reward == 0:
+            self.beta_tmp = nn.ParameterList([nn.Parameter(x.detach().clone()) for x in self.beta])
+
+        if adaptive_lr:
+            self.lr = nn.ParameterList([nn.Parameter(torch.tensor(lr))] * len(self.z_shapes))
+        else:
+            self.lr = [lr] * len(self.z_shapes)
+
+        self.params_to_adapt = [param for param in self.z_0.parameters()] + [param for param in self.theta.parameters()]
+
+    def get_explorer_params(self):
+        if self.decouple_explorer:
+            return self.psi
+        return self.z_0
+
+    def get_exploiter_starting_params(self):
+        return self.z_0
+
+    def f_theta(self, x, theta=None):
+
+        decoupled_exploration = False
+        if theta is None:
+            z = self.z_0
+            theta = self.theta
+            if self.decouple_explorer == 1:
+                z = self.psi[:-4]
+                theta = self.psi[-4:]
+                decoupled_exploration = True
+        else:
+            z = theta
+            theta = self.theta
+
+        h = self.activation_f(F.conv2d(x, z[0], bias=z[1], stride=1, padding=0))
+        h = self.activation_f(F.conv2d(h, z[2], bias=z[3], stride=1, padding=0))
+        h = self.activation_f(F.conv2d(h, z[4], bias=z[5], stride=1, padding=0))
+        h = self.activation_f(F.conv2d(h, z[6], bias=z[7], stride=1, padding=0))
+        h = h.contiguous()
+        h = h.view(-1, (self.img_reduced_dim * self.img_reduced_dim * 4))
+        h_a = self.activation_f(F.linear(h, theta[0], bias=theta[1]))
+        h_a = F.linear(h_a, theta[2], bias=theta[3])
+        pi = F.softmax(h_a, -1)
+
+        if decoupled_exploration:
+            v = 0
+        else:
+            h_c = self.activation_f(F.linear(h, self.theta_v[0], bias=self.theta_v[1]))
+            h_c = F.linear(h_c, self.theta_v[2], bias=self.theta_v[3])
+            v = h_c[:, 0]
+
+        return pi, v
+
+    def get_predicted_reward(self, x, a, use_beta=False):
+
+        beta = self.beta
+        if not use_beta and self.decoupled_reward == 0:
+            beta = self.beta_tmp
+
+        h = self.activation_f(F.conv2d(x, self.z_0[0], bias=self.z_0[1], stride=1, padding=0))
+        h = self.activation_f(F.conv2d(h, self.z_0[2], bias=self.z_0[3], stride=1, padding=0))
+        h = self.activation_f(F.conv2d(h, self.z_0[4], bias=self.z_0[5], stride=1, padding=0))
+        h = self.activation_f(F.conv2d(h, self.z_0[6], bias=self.z_0[7], stride=1, padding=0))
+        h = h.contiguous()
+        h = h.view(-1, (self.img_reduced_dim * self.img_reduced_dim * 4))
+        h = torch.cat([h, a], -1)
+        h_r = self.activation_f(F.linear(h, beta[0], bias=beta[1]))
+        h_r = F.linear(h_r, beta[2], bias=beta[3])
+
+        return h_r[:, 0]
+
+    def forward(self, x, theta=None):
+
+        pi, v = self.f_theta(x, theta=theta)
+
+        dist = Categorical(pi)
+        action = dist.sample()
+        action_logprob = dist.log_prob(action)
+
+        return action.item(), action_logprob, v
+
+    def evaluate(self, x, action, theta=None):
+
+        pi, v = self.f_theta(x, theta=theta)
+
+        if torch.is_tensor(action):
+            action = action.tolist()
+        else:
+            action = [action]
+
+        action_logprobs = torch.log(torch.clamp(pi[range(len(action)), action], min=1e-10))
+
+        dist = Categorical(pi)
+        dist_entropy = dist.entropy()
+
+        return action_logprobs, v, dist_entropy
+
+    def get_adapt_loss(self, logprobs, old_logprobs, rt, R, st, at, V, c1):
+
+        rt_hat = self.get_predicted_reward(st, at)
+        R_err = ((rt - rt_hat) ** 2)
+
+        loss_pi = (- torch.exp(logprobs - old_logprobs.detach()) * R_err).mean()
+        loss = loss_pi
+
+        return loss, loss_pi.detach().cpu().item(), 0, R_err.mean().detach().cpu().item()
+
+
+class NormalMamlParamsPPO(nn.Module):
+
+    def __init__(self, params, activation='tanh', adaptive_lr=False):
+        super(NormalMamlParamsPPO, self).__init__()
+        grid_size = params['grid_size']
+        show_goal = params['show_goal']
+        lr = params['inner_lr']
+
+        self.img_reduced_dim = grid_size + 2 - 2 * 4
+        if show_goal == 0:
+            n_filters = 2
+        else:
+            n_filters = 3
+
+        if activation == 'tanh':
+            self.activation_f = nn.Tanh()
+        elif activation == 'relu':
+            self.activation_f = nn.ReLU()
+        elif activation == 'leaky_relu':
+            self.activation_f = nn.LeakyReLU()
+
+        self.theta_shapes = [[4, n_filters, 3, 3], [4],
+                             [4, 4, 3, 3], [4],
+                             [4, 4, 3, 3], [4],
+                             [4, 4, 3, 3], [4],
+                             [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+                             [4, 32], [4],
+                             [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+                             [1, 32], [1],
+                             ]
+        self.theta_0 = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.theta_shapes])
+        for i in range(len(self.theta_0)):
+            if self.theta_0[i].dim() > 1:
+                torch.nn.init.kaiming_uniform_(self.theta_0[i])
+
+        if adaptive_lr:
+            self.lr = nn.ParameterList([nn.Parameter(torch.tensor(lr))] * len(self.theta_shapes))
+        else:
+            self.lr = [lr] * len(self.theta_shapes)
+
+    def get_explorer_params(self):
+        return self.theta_0
+
+    def get_exploiter_starting_params(self):
+        return self.theta_0
+
+    def f_theta(self, x, theta=None):
+
+        if theta is None:
+            theta = self.theta_0
+
+        h = self.activation_f(F.conv2d(x, theta[0], bias=theta[1], stride=1, padding=0))
+        h = self.activation_f(F.conv2d(h, theta[2], bias=theta[3], stride=1, padding=0))
+        h = self.activation_f(F.conv2d(h, theta[4], bias=theta[5], stride=1, padding=0))
+        h = self.activation_f(F.conv2d(h, theta[6], bias=theta[7], stride=1, padding=0))
+        h = h.contiguous()
+        h = h.view(-1, (self.img_reduced_dim * self.img_reduced_dim * 4))
+        h_a = self.activation_f(F.linear(h, theta[8], bias=theta[9]))
+        h_a = F.linear(h_a, theta[10], bias=theta[11])
+        pi = F.softmax(h_a, -1)
+        h_c = self.activation_f(F.linear(h, theta[12], bias=theta[13]))
+        h_c = F.linear(h_c, theta[14], bias=theta[15])
+        v = h_c[:, 0]
+
+        return pi, v
+
+    def forward(self, x, theta=None):
+
+        pi, v = self.f_theta(x, theta=theta)
+
+        dist = Categorical(pi)
+        action = dist.sample()
+        action_logprob = dist.log_prob(action)
+
+        return action.item(), action_logprob, v
+
+    def evaluate(self, x, action, theta=None):
+
+        pi, v = self.f_theta(x, theta=theta)
+
+        if torch.is_tensor(action):
+            action = action.tolist()
+        else:
+            action = [action]
+
+        action_logprobs = torch.log(torch.clamp(pi[range(len(action)), action], min=1e-10))
+
+        dist = Categorical(pi)
+        dist_entropy = dist.entropy()
+
+        return action_logprobs, v, dist_entropy
+
+    def get_adapt_loss(self, logprobs, old_logprobs, rt, R, st, at, V, c1):
+        A = R-V
+
+        loss_pi = (- torch.exp(logprobs - old_logprobs.detach()) * A.detach()).mean()  # (- rtgs * logprobs).mean() # TODO: importance sampling / something to update psi
+        loss_v = (c1 * A ** 2).mean()
+        loss = loss_pi + loss_v
+
+        return loss, loss_pi.detach().cpu().item(), loss_v.detach().cpu().item(), 0.
+
+
+
+
 
 
 class ActorCriticMAML(nn.Module):

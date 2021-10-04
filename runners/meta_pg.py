@@ -4,8 +4,10 @@ from agents.pg_meta_agent import REINFORCE, PPO
 from maze_gen import Maze_Gen
 from tqdm import tqdm
 import torch
+import os
 import time
 import copy
+from torch import nn
 
 from filtering_methods import random_filter, max_reward, state_frequencies, forward_prediction, max_inner_loss
 
@@ -162,8 +164,12 @@ def meta_pg(params, writer, n_experiment, device):
         avg_loss_v = 0
         avg_R = 0
         avg_final_r = 0
+        avg_inner_reward_MSE = 0
 
         avg_final_distance = 0
+
+        list_sims = []
+        T_list = []
 
         for i in range(params['batch_tasks']):
 
@@ -184,16 +190,41 @@ def meta_pg(params, writer, n_experiment, device):
             T_adapt = path_len * params['horizon_multiplier_adaptation']
             T = path_len * params['horizon_multiplier']
 
+            list_sims.append(sim)
+            T_list.append(T)
+
+
+            ##################################################################### GREEDY EXPLORATION TRAJECTORY ########################################################
+
+            if i == 0:
+                agent.epsilon = 0.
+                exploration_frq = np.zeros(maze.shape)
+                sim.reset()
+                st = sim.get_state()
+                for t in range(T_adapt):
+                    a, _, _ = agent.get_action(st)
+                    r, done = sim.step(a)
+                    st1 = sim.get_state()
+                    pos = np.nonzero(st1[0, 1])
+                    exploration_frq[int(pos[0]), int(pos[1])] += 1
+                    if done:
+                        break
+                    st = st1
+                agent.writer.add_image("exploration_strategy", torch.tensor(exploration_frq), epoch, dataformats='HW')
+
+            ############################################################################################################################################################
+
             # sample traj adaptation for each maze
             mean_rwd_trj, num_opt_trj = push_trajectories(agent, i, sim, params['adaptation_trajectories'], params['adaptation_best_trajectories'], T_adapt, theta_i=None, mode=agent.ADAPTATION, optim_traj=paths, optimal=params['adaptation_optimal_traj'], filter=params['filter_type'])
             avg_mean_rwd_trj += mean_rwd_trj
             avg_num_opt_trj += num_opt_trj
 
             # adapt theta for each maze
-            theta_i, loss_adapt, l_pi, l_v, grads_adapt = agent.adapt(i, train=True, print_grads=True)
+            theta_i, loss_adapt, l_pi, l_v, _, inner_reward_MSE = agent.adapt(i, train=True, print_grads=True)
             avg_loss += loss_adapt
             avg_loss_pi += l_pi
             avg_loss_v += l_v
+            avg_inner_reward_MSE += inner_reward_MSE
 
             # sample traj evaluation for each maze
             _, _ = push_trajectories(agent, i, sim, params['episodes'], 1, T, theta_i=theta_i, mode=agent.EVALUATION, optim_traj=paths, optimal=params['adaptation_optimal_traj'], filter=params['filter_type'])
@@ -204,10 +235,33 @@ def meta_pg(params, writer, n_experiment, device):
 
             avg_final_distance += final_distance
 
+            ##################################################################### GREEDY EXPLOITATION TRAJECTORY ########################################################
+
+            if i == 0:
+                agent.epsilon = 0.
+                exploitation_frq = np.zeros((maze.shape[0], maze.shape[0], 3))
+                exploitation_frq[int(sim.goal[0]), int(sim.goal[1]), 0] = T
+                sim.reset()
+                st = sim.get_state()
+                for t in range(T):
+                    a, _, _ = agent.get_action(st, theta=theta_i, test=True)
+                    r, done = sim.step(a)
+                    st1 = sim.get_state()
+                    pos = np.nonzero(st1[0, 1])
+                    exploitation_frq[int(pos[0]), int(pos[1]), 2] += 1
+                    if done:
+                        break
+                    st = st1
+                agent.writer.add_image("exploitation_strategy", torch.tensor(exploitation_frq), epoch, dataformats='HWC')
+
+            ############################################################################################################################################################
+
         saved_distances.append(avg_final_distance/params['batch_tasks'])
 
         if epoch % 10 == 0 and n_experiment != "":
             name = 'l2='+str(params['add_loss_exploration'])+'_l_inner='+str(params['inner_loss_type'])+'_decouple='+str(params['decoupled_explorer'])+'_R_sparse='+str(params['sparse_reward'])
+            if not os.path.exists("./results"+n_experiment):
+                os.mkdir("./results"+n_experiment)
             np.save("./results"+n_experiment+"/distances_"+name+".npy", np.array(saved_distances))
 
         agent.writer.add_scalar("Adaptation loss", avg_loss/params['batch_tasks'], int(epoch))
@@ -217,6 +271,7 @@ def meta_pg(params, writer, n_experiment, device):
         agent.writer.add_scalar("Number optimal trajectories adaptation", avg_num_opt_trj/params['batch_tasks'], int(epoch))
         agent.writer.add_scalar("Test reward theta prime before training", avg_R/params['batch_tasks'], int(epoch))
         agent.writer.add_scalar("Final test reward theta prime before training", avg_final_r/params['batch_tasks'], int(epoch))
+        agent.writer.add_scalar("Beta loss (reward prediction adaptation)", avg_inner_reward_MSE / params['batch_tasks'], int(epoch))
         for j, grad in enumerate(agent.grads_vals):
             agent.writer.add_scalar('params_grad_' + str(j), grad/params['batch_tasks'], agent.log_grads_idx)
         agent.grads_vals *= 0
@@ -228,89 +283,158 @@ def meta_pg(params, writer, n_experiment, device):
         # print(agent.policy.psi[-5], agent.policy.psi[-1])
         # print(agent.policy.get_theta()[-5])
 
-        cos_tot = 0
+        cos_init = 0
         l_expl = 0
 
-        for theta_it in range(params['exploiter_iteration']):
+        for exploiter_it in tqdm(range(params['exploiter_iteration']-1)):
             # recollect trajectories with adapted theta, reset theta_0
-            theta_0 = copy.deepcopy(agent.policy.get_theta())
+            theta_0 = copy.deepcopy(agent.policy.get_exploiter_starting_params())
 
-            print("Iteration{}: ".format(theta_it),agent.policy.psi[-1], agent.policy.theta[-5], agent.policy.z_0[-1])
+            # if agent.decouple_predictors == 0:
+            #     print("Iteration{}: ".format(exploiter_it), agent.policy.psi[-1], agent.policy.theta[-1], agent.policy.theta_v[-1], agent.policy.beta[-1], agent.policy.beta_tmp[-1])
+            # else:
+            #     print("Iteration{}: ".format(exploiter_it), agent.policy.psi[-1], agent.policy.theta[-1], agent.policy.theta_v[-1], agent.policy.beta[-1])
 
-            if theta_it > 0:
+            if exploiter_it > 0:
                 agent.clear_batchdata(1)
 
             for k in range(agent.K):
 
-                print(torch.cuda.max_memory_allocated(device=device))
+                if agent.decouple_predictors == 0:
+                    agent.policy.beta_tmp = nn.ParameterList([nn.Parameter(x.detach().clone()) for x in agent.policy.beta])
 
-                l_tot = 0
+                # print(torch.cuda.max_memory_allocated(device=device))
+
+                l_maml = 0
                 l2_tot = 0
                 for i in range(params['batch_tasks']):
 
                     # adapt theta-0
-                    theta_i, loss_adapt, _, _, grads_adapt = agent.adapt(i, train=True)
+                    theta_i, loss_adapt, _, _, grads_adapt, _ = agent.adapt(i, train=True)
 
                     #recollect evaluation trajs
-                    if theta_it > 0 and k == 0:
-                        id_sim = params['batch_tasks']*epoch + i
-                        sim = Simulator(starts[id_sim], goals[id_sim], mazes[id_sim], paths_length[id_sim], params)
-                        T_sim = paths_length[id_sim] * params['horizon_multiplier']
+                    if exploiter_it > 0 and k == 0:
+                        sim = list_sims[i]
+                        T_sim = T_list[i]
                         _, _ = push_trajectories(agent, i, sim, params['episodes'], 1, T_sim, theta_i=theta_i, mode=agent.EVALUATION, optim_traj=None, optimal=params['adaptation_optimal_traj'], filter=params['filter_type'])
 
                     # compute PPO loss
-                    l_i, l2_i, cos_sim = agent.get_loss(theta_i, theta_0, i, grads_adapt)
-                    l_tot += l_i
+                    l_i, l2_i, cos_sim = agent.get_loss(theta_i, theta_0, i, False, grads_adapt)
+                    l_maml += l_i
                     l2_tot += l2_i
-                    cos_tot += cos_sim
-
-                # l_expl = l_tot + l2_tot
+                    if exploiter_it == 0:
+                        cos_init += cos_sim
 
                 if agent.dec_opt == 1:
-                    # Update theta-0 with sum of losses
-                    agent.optimizer_exploiter.zero_grad()
-                    l_tot.backward()
-                    if params['gradient_clipping'] == 1:
-                        torch.nn.utils.clip_grad_norm_(agent.model_parameters, 0.5)
-                    agent.optimizer_exploiter.step()
-
-                    # if last update of the agent then update explorer
-                    if k == agent.K - 1 and theta_it == params['exploiter_iteration'] - 1:
-                        agent.optimizer_explorer.zero_grad()
-                        l2_tot.backward()
-                        if params['gradient_clipping'] == 1:
-                            torch.nn.utils.clip_grad_norm_(agent.explorer_parameters, 0.5)
-                        agent.optimizer_explorer.step()
+                    l_tot = l_maml
                 else:
-                    # Update theta-0 with sum of losses
-                    if agent.decouple_models == 0:
-                        agent.optimizer.zero_grad()
-                        (l_tot + l2_tot).backward()
-                        if params['gradient_clipping'] == 1:
-                            torch.nn.utils.clip_grad_norm_(agent.model_parameters, 0.5)
-                        agent.optimizer.step()
-                    else:
-                        # Update theta-0 with sum of losses
-                        agent.optimizer_exploiter.zero_grad()
-                        agent.optimizer_explorer.zero_grad()  # todo: check if there is a gradient
-                        (l_tot + l2_tot).backward()
-                        if params['gradient_clipping'] == 1:
-                            torch.nn.utils.clip_grad_norm_(agent.model_parameters, 0.5)
-                        agent.optimizer_exploiter.step()
+                    l_tot = l_maml + l2_tot
 
-                        # if last update of the agent then update explorer
-                        if k == agent.K - 1 and theta_it == params['exploiter_iteration'] - 1:
+                agent.main_optimizer.zero_grad()
+                l_tot.backward()
+                if params['gradient_clipping'] == 1:
+                    torch.nn.utils.clip_grad_norm_(agent.model_parameters, 0.5)
+                agent.main_optimizer.step()
 
-                            if params['gradient_clipping'] == 1:
-                                torch.nn.utils.clip_grad_norm_(agent.explorer_parameters, 0.5)
-                            agent.optimizer_explorer.step()
+                avg_logprob = 0
+                for trj in agent.batchdata[1][:40]:
+                    avg_logprob += torch.mean(torch.cat(trj.logprobs)).detach().cpu().item()
+                # print(avg_logprob / len(agent.batchdata[1]))
+                agent.writer.add_scalar("avg_logprobs", (avg_logprob / len(agent.batchdata[1])), int(epoch * (params['exploiter_iteration']-1) + exploiter_it))
+
+                # if agent.decouple_predictors == 0:
+                #     agent.policy.beta_tmp = nn.ParameterList([nn.Parameter(x.detach().clone()) for x in agent.policy.beta])
 
 
+                # # l_expl = l_tot + l2_tot
+                #
+                # if agent.dec_opt == 1:
+                #     # Update theta-0 with sum of losses
+                #     agent.optimizer_exploiter.zero_grad()
+                #     l_tot.backward()
+                #     if params['gradient_clipping'] == 1:
+                #         torch.nn.utils.clip_grad_norm_(agent.model_parameters, 0.5)
+                #     agent.optimizer_exploiter.step()
+                #
+                #     # if last update of the agent then update explorer
+                #     if last_iteration:
+                #         agent.optimizer_explorer.zero_grad()
+                #         l2_tot.backward()
+                #         if params['gradient_clipping'] == 1:
+                #             torch.nn.utils.clip_grad_norm_(agent.explorer_parameters, 0.5)
+                #         agent.optimizer_explorer.step()
+                # else:
+                #     # Update theta-0 with sum of losses
+                #     if agent.decouple_models == 0:
+                #         agent.optimizer.zero_grad()
+                #         (l_tot + l2_tot).backward()
+                #         if params['gradient_clipping'] == 1:
+                #             torch.nn.utils.clip_grad_norm_(agent.model_parameters, 0.5)
+                #         agent.optimizer.step()
+                #     else:
+                #         # Update theta-0 with sum of losses
+                #         agent.optimizer_exploiter.zero_grad()
+                #         agent.optimizer_explorer.zero_grad()  # todo: check if there is a gradient
+                #         (l_tot + l2_tot).backward()
+                #         if params['gradient_clipping'] == 1:
+                #             torch.nn.utils.clip_grad_norm_(agent.model_parameters, 0.5)
+                #         agent.optimizer_exploiter.step()
+                #
+                #         # if last update of the agent then update explorer
+                #         if last_iteration:
+                #             if params['gradient_clipping'] == 1:
+                #                 torch.nn.utils.clip_grad_norm_(agent.explorer_parameters, 0.5)
+                #             agent.optimizer_explorer.step()
 
-            # # Update logporbs and state values of the adaptation trajectories for the new theta zero
-            # agent.update_adaptation_batches()
+        if agent.decouple_predictors == 0:
+            agent.policy.beta_tmp = nn.ParameterList([nn.Parameter(x.detach().clone()) for x in agent.policy.beta])
 
-        agent.writer.add_scalar("Cosine similarity", cos_tot / (params['batch_tasks'] * agent.K), int(epoch))
+        theta_0 = copy.deepcopy(agent.policy.get_exploiter_starting_params())
+        l_maml = 0
+        l2_tot = 0
+        cos_final = 0
+        for i in range(params['batch_tasks']):
+            sim = list_sims[i]
+            T_sim = T_list[i]
+            theta_i, loss_adapt, _, _, grads_adapt, _ = agent.adapt(i, train=True)
+            _, _ = push_trajectories(agent, i, sim, params['episodes'], 1, T_sim, theta_i=theta_i, mode=agent.EVALUATION, optim_traj=None, optimal=params['adaptation_optimal_traj'], filter=params['filter_type'])
+            l_i, l2_i, cos_sim = agent.get_loss(theta_i, theta_0, i, True, grads_adapt)
+            l_maml += l_i
+            l2_tot += l2_i
+            cos_final += cos_sim
+
+        if agent.dec_opt == 1:
+            agent.main_optimizer.zero_grad()
+            l_maml.backward()
+            if params['gradient_clipping'] == 1:
+                torch.nn.utils.clip_grad_norm_(agent.model_parameters, 0.5)
+            agent.main_optimizer.step()
+
+            agent.optimizer_explorer.zero_grad()
+            l2_tot.backward()
+            if params['gradient_clipping'] == 1:
+                torch.nn.utils.clip_grad_norm_(agent.psi_params, 0.5)
+            agent.optimizer_explorer.step()
+        else:
+            if agent.decouple_models == 0:
+                agent.main_optimizer.zero_grad()
+                (l_maml+l2_tot).backward()
+                if params['gradient_clipping'] == 1:
+                    torch.nn.utils.clip_grad_norm_(agent.model_parameters, 0.5)
+                agent.main_optimizer.step()
+            else:
+                agent.main_optimizer.zero_grad()
+                agent.optimizer_explorer.zero_grad()
+                (l_maml + l2_tot).backward()
+                if params['gradient_clipping'] == 1:
+                    torch.nn.utils.clip_grad_norm_(agent.model_parameters, 0.5)
+                    torch.nn.utils.clip_grad_norm_(agent.psi_params, 0.5)
+                agent.main_optimizer.step()
+                agent.optimizer_explorer.step()
+
+        agent.writer.add_scalar("Cosine similarity init", (cos_init / params['batch_tasks']), int(epoch))
+        agent.writer.add_scalar("Cosine similarity final", (cos_final / params['batch_tasks']), int(epoch))
+        agent.writer.add_scalar("Cosine similarity difference", (cos_final / params['batch_tasks'])-(cos_init / params['batch_tasks']), int(epoch))
 
         # ''' TEST ON OLD MAZES '''
         #
