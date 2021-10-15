@@ -174,11 +174,11 @@ class PPO(nn.Module):
 
         self.policy.train()
 
-        if idx == 0 and print_grads:
-            states = np.concatenate(self.batchdata[0][idx].states, 0)
-            img = np.sum(states, 0)[1]
-            self.writer.add_image("exploration_visited", torch.tensor(img), self.log_frq_idx, dataformats='HW')
-            self.log_frq_idx += 1
+        # if idx == 0 and print_grads:
+        #     states = np.concatenate(self.batchdata[0][idx].states, 0)
+        #     img = np.sum(states, 0)[1]
+        #     self.writer.add_image("exploration_visited", torch.tensor(img), self.log_frq_idx, dataformats='HW')
+        #     self.log_frq_idx += 1
 
         rt = self.to_tensor(self.batchdata[0][idx].rewards)
         rtgs = self.to_tensor(calc_rtg(rt, self.batchdata[0][idx].is_terminal, self.gamma))  # reward-to-go

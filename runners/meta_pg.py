@@ -17,8 +17,12 @@ def push_trajectories(agent, idx, sim, N_trj, ratio_best_trj, T, theta_i=None, m
     agent.epsilon = agent.get_epsilon(mode)
 
     temp_data = []
-    cumulative_rwds = np.zeros(max(1, N_trj))
-    temp_num_optim_trj = np.zeros(max(1, N_trj))
+    if mode == agent.ADAPTATION:  # TODO: CHANGE ME
+        cumulative_rwds = np.zeros(max(1, N_trj+1))
+        temp_num_optim_trj = np.zeros(max(1, N_trj+1))
+    else:
+        cumulative_rwds = np.zeros(max(1, N_trj))
+        temp_num_optim_trj = np.zeros(max(1, N_trj))
 
     '''
     optimal trajectory given by oracle
@@ -88,6 +92,50 @@ def push_trajectories(agent, idx, sim, N_trj, ratio_best_trj, T, theta_i=None, m
             temp_data.append(temp_traj)
 
             agent.update_epsilon(mode)
+
+
+
+
+
+
+
+    if mode == agent.ADAPTATION:
+        N_trj += 1
+        trj = N_trj-1
+
+        a_optimal = [1]*6 + [2, 0]*6 + [3, 0]*6 + [3, 1] * 6 + [2, 1]*6
+
+        sim.reset()
+        st = sim.get_state()
+        temp_traj = []
+
+        for t in range(T):
+            # a, logprob, v = agent.get_action(st, theta_i)
+            logprob, v, _ = agent.policy.evaluate(agent.to_tensor(st), a_optimal[t])
+            r, done = sim.step(a_optimal[t])
+            cumulative_rwds[trj] += r
+
+            st1 = sim.get_state()
+
+            if done:
+                temp_num_optim_trj[trj] += 1
+
+            if t == T - 1:
+                done = True
+
+            temp_traj.append((st, a_optimal[t], logprob, logprob, v, r, done, st1))
+
+            if done:
+                break
+
+            st = st1
+
+        temp_data.append(temp_traj)
+
+
+
+
+
 
     if mode == agent.ADAPTATION:
         if filter == 0:
@@ -205,7 +253,8 @@ def meta_pg(params, writer, n_experiment, device):
                     a, _, _ = agent.get_action(st)
                     r, done = sim.step(a)
                     st1 = sim.get_state()
-                    pos = np.nonzero(st1[0, 1])
+                    # pos = np.nonzero(st1[0, 1])
+                    pos = (st1[0, t*2], st1[0, t*2+1])
                     exploration_frq[int(pos[0]), int(pos[1])] += 1
                     if done:
                         break
@@ -247,7 +296,8 @@ def meta_pg(params, writer, n_experiment, device):
                     a, _, _ = agent.get_action(st, theta=theta_i, test=True)
                     r, done = sim.step(a)
                     st1 = sim.get_state()
-                    pos = np.nonzero(st1[0, 1])
+                    # pos = np.nonzero(st1[0, 1])
+                    pos = (st1[0, t * 2], st1[0, t * 2 + 1])
                     exploitation_frq[int(pos[0]), int(pos[1]), 2] += 1
                     if done:
                         break
@@ -276,6 +326,13 @@ def meta_pg(params, writer, n_experiment, device):
             agent.writer.add_scalar('params_grad_' + str(j), grad/params['batch_tasks'], agent.log_grads_idx)
         agent.grads_vals *= 0
         agent.log_grads_idx += 1
+
+        logprob_optimal_expl = 0
+        for data in agent.batchdata[0]:
+            for logprob in data.logprobs[1296:]:
+                logprob_optimal_expl += logprob.detach().cpu().item()
+        logprob_optimal_expl /= len(agent.batchdata[0])
+        agent.writer.add_scalar("Prob optimal exploration", logprob_optimal_expl, int(epoch))
 
         ''' K PPO UPDATES OF THETA-0'''
 
@@ -337,8 +394,8 @@ def meta_pg(params, writer, n_experiment, device):
                 agent.main_optimizer.step()
 
                 avg_logprob = 0
-                for trj in agent.batchdata[1][:40]:
-                    avg_logprob += torch.mean(torch.cat(trj.logprobs)).detach().cpu().item()
+                for data in agent.batchdata[1]:
+                    avg_logprob += torch.mean(torch.cat(data.logprobs[-T:])).detach().cpu().item()
                 # print(avg_logprob / len(agent.batchdata[1]))
                 agent.writer.add_scalar("avg_logprobs", (avg_logprob / len(agent.batchdata[1])), int(epoch * (params['exploiter_iteration']-1) + exploiter_it))
 

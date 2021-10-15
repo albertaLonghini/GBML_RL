@@ -37,6 +37,10 @@ class Simulator:
         # self.grid[self.init_pos] = self.pos_val
         # self.grid[self.goal] = self.goal_val
 
+        self.T_ti = T * params['horizon_multiplier_adaptation']
+        self.visited_states = np.zeros((self.T_ti, 2))
+        self.time_step = 0
+
         self.actual_pos_x = self.init_pos[0]
         self.actual_pos_y = self.init_pos[1]
 
@@ -75,6 +79,14 @@ class Simulator:
             self.actual_pos_x = old_pos_x
             self.actual_pos_y = old_pos_y
 
+        # if self.time_step == self.T:
+        #     tmp = np.zeros((self.T_adapt, 2))
+        #     tmp[:self.T] = self.visited_states
+        #     self.visited_states = tmp
+        self.visited_states[self.time_step, 0] = self.actual_pos_x
+        self.visited_states[self.time_step, 1] = self.actual_pos_y
+        self.time_step += 1
+
         if self.sparse == 1:
             r = 0
         else:
@@ -95,7 +107,7 @@ class Simulator:
         pos = np.zeros(self.grid.shape)
         pos[(self.actual_pos_x, self.actual_pos_y)] = self.pos_val
         if self.show_goal == 0:
-            return np.expand_dims(np.concatenate([np.expand_dims(self.grid, 0), np.expand_dims(pos, 0)], 0), 0)
+            return np.expand_dims(np.reshape(self.visited_states, (-1)), 0) #np.expand_dims(np.concatenate([np.expand_dims(self.grid, 0), np.expand_dims(pos, 0)], 0), 0)
         else:
             return np.expand_dims(np.concatenate([np.expand_dims(self.grid, 0), np.expand_dims(pos, 0), np.expand_dims(goal, 0)], 0), 0)
 
@@ -109,6 +121,9 @@ class Simulator:
         # self.grid[self.goal] = self.goal_val
         self.actual_pos_x = self.init_pos[0]
         self.actual_pos_y = self.init_pos[1]
+
+        self.visited_states = np.zeros((self.T_ti, 2))
+        self.time_step = 0
 
     def normalize_reward(self, r, T):
         return r #- 1 + T * (T-1)/2.

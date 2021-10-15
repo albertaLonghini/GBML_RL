@@ -39,7 +39,7 @@ parser.add_argument('--modalities_goal_dist', default=0, type=int, help='0: unif
 parser.add_argument('--epochs', default=100000, type=int, help='Number of different mazes to train on')
 parser.add_argument('--adaptive_lr', default=False, type=bool, help='Per parameter adaptive learning rate')
 parser.add_argument('--horizon_multiplier', default=1, type=int, help='Multiplier of shortest path size to define max steps per episode')  # todo: back to 3
-parser.add_argument('--adaptation_trajectories', default=25, type=int, help='Number of trajectories used for the adaptation step (MAML), 0 means only one step')
+parser.add_argument('--adaptation_trajectories', default=24, type=int, help='Number of trajectories used for the adaptation step (MAML), 0 means only one step') # todo: back to 25 without optim
 parser.add_argument('--eps_adapt_decay', default=0.8, type=float, help='epsilon adaptation decay')      #todo: 0.6 for 10 trajs
 parser.add_argument('--adaptation_best_trajectories', default=1.0, type=float, help='Ratio of trajectories with highest reword to be used in adaptation')
 parser.add_argument('--adaptation_optimal_traj', default=False, type=bool, help='Sample from optimal paths for adaptation')
@@ -94,7 +94,7 @@ parser.add_argument('--decoupled_predictors', default=0, type=int, help='0: same
 parser.add_argument('--beta_model', default=1, type=int, help='0: input = z_0 latent space and action, 1: different networks')
 
 
-parser.add_argument('--exploiter_iteration', default=10, type=int, help='Number of exploiter optimization') # TODO: 10
+parser.add_argument('--exploiter_iteration', default=3, type=int, help='Number of exploiter optimization') # TODO: 10
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -135,7 +135,9 @@ if __name__ == '__main__':
     # logdir = './logs_promp9/l2='+str(params['add_loss_exploration'])+'_l_inner='+str(params['inner_loss_type'])+'_decouple_e='+str(params['decoupled_explorer'])+'_decouple_opt='+str(params['decoupled_optimization'])+'_exploiter_it='+str(params['exploiter_iteration'])
     # logdir = './logs_promp3/l2='+str(params['add_loss_exploration'])+'_inner_type='+str(params['inner_loss_type'])+'_decouple='+str(params['decoupled_explorer'])
     # logdir = './logs_promp10/sparse=' + str(params['sparse_reward']) + '_loss=' + str(params['explorer_loss']) + '_decouple_opt=' + str(params['decoupled_optimization']) + '_exploiter_it=' + str(params['exploiter_iteration'])
-    logdir = "./debug/2"
+    logdir = './logs_promp11/exploiter_it=' + str(params['exploiter_iteration']) + '_seed=' + str(params['seed'])
+
+    # logdir = "./debug/3"
     writer = SummaryWriter(log_dir=logdir)
 
     n_experiment = ""

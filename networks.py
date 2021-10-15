@@ -516,29 +516,53 @@ class Curiosity2MamlParamsPPO(nn.Module):
         elif activation == 'leaky_relu':
             self.activation_f = nn.LeakyReLU()
 
+        # self.decouple_explorer = params['decoupled_explorer']
+        # if self.decouple_explorer == 1:
+        #     self.psi_shapes = [[4, n_filters, 3, 3], [4],
+        #                        [4, 4, 3, 3], [4],
+        #                        [4, 4, 3, 3], [4],
+        #                        [4, 4, 3, 3], [4],
+        #                        [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+        #                        [4, 32], [4],
+        #                       ]
+        #     self.psi = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.psi_shapes])
+        #     for i in range(len(self.psi)):
+        #         if self.psi[i].dim() > 1:
+        #             torch.nn.init.kaiming_uniform_(self.psi[i])
+        #
+        # self.theta_shapes = [[4, n_filters, 3, 3], [4],
+        #                      [4, 4, 3, 3], [4],
+        #                      [4, 4, 3, 3], [4],
+        #                      [4, 4, 3, 3], [4],
+        #                      [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+        #                      [4, 32], [4]]
+        # self.theta_v_shapes = [[32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+        #                        [1, 32], [1]]
+        # self.beta_shapes = [[32, (self.img_reduced_dim * self.img_reduced_dim * 4) + 1 + 4], [32],
+        #                     [1, 32], [1]]
+        # self.theta = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.theta_shapes])
+        # self.theta_v = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.theta_v_shapes])
+        # self.beta = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.beta_shapes])
         self.decouple_explorer = params['decoupled_explorer']
         if self.decouple_explorer == 1:
-            self.psi_shapes = [[4, n_filters, 3, 3], [4],
-                               [4, 4, 3, 3], [4],
-                               [4, 4, 3, 3], [4],
-                               [4, 4, 3, 3], [4],
-                               [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+            self.psi_shapes = [[32, 2*params['path_length']*params['horizon_multiplier_adaptation']], [32],
+                               [32, 32], [32],
+                               [32, 32], [32],
                                [4, 32], [4],
-                              ]
+                               ]
             self.psi = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.psi_shapes])
             for i in range(len(self.psi)):
                 if self.psi[i].dim() > 1:
                     torch.nn.init.kaiming_uniform_(self.psi[i])
 
-        self.theta_shapes = [[4, n_filters, 3, 3], [4],
-                             [4, 4, 3, 3], [4],
-                             [4, 4, 3, 3], [4],
-                             [4, 4, 3, 3], [4],
-                             [32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
-                             [4, 32], [4]]
-        self.theta_v_shapes = [[32, (self.img_reduced_dim * self.img_reduced_dim * 4)], [32],
+        self.theta_shapes = [[32, 2*params['path_length']*params['horizon_multiplier_adaptation']], [32],
+                             [32, 32], [32],
+                             [32, 32], [32],
+                             [4, 32], [4],
+                             ]
+        self.theta_v_shapes = [[32, 32], [32],
                                [1, 32], [1]]
-        self.beta_shapes = [[32, (self.img_reduced_dim * self.img_reduced_dim * 4) + 1 + 4], [32],
+        self.beta_shapes = [[32, 32 + 1 + 4], [32],
                             [1, 32], [1]]
         self.theta = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.theta_shapes])
         self.theta_v = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.theta_v_shapes])
@@ -581,14 +605,20 @@ class Curiosity2MamlParamsPPO(nn.Module):
                 theta = self.psi
                 decoupled_exploration = True
 
-        h = self.activation_f(F.conv2d(x, theta[0], bias=theta[1], stride=1, padding=0))
-        h = self.activation_f(F.conv2d(h, theta[2], bias=theta[3], stride=1, padding=0))
-        h = self.activation_f(F.conv2d(h, theta[4], bias=theta[5], stride=1, padding=0))
-        h = self.activation_f(F.conv2d(h, theta[6], bias=theta[7], stride=1, padding=0))
-        h = h.contiguous()
-        h = h.view(-1, (self.img_reduced_dim * self.img_reduced_dim * 4))
-        h_a = self.activation_f(F.linear(h, theta[8], bias=theta[9]))
-        h_a = F.linear(h_a, theta[10], bias=theta[11])
+        # h = self.activation_f(F.conv2d(x, theta[0], bias=theta[1], stride=1, padding=0))
+        # h = self.activation_f(F.conv2d(h, theta[2], bias=theta[3], stride=1, padding=0))
+        # h = self.activation_f(F.conv2d(h, theta[4], bias=theta[5], stride=1, padding=0))
+        # h = self.activation_f(F.conv2d(h, theta[6], bias=theta[7], stride=1, padding=0))
+        # h = h.contiguous()
+        # h = h.view(-1, (self.img_reduced_dim * self.img_reduced_dim * 4))
+        # h_a = self.activation_f(F.linear(h, theta[8], bias=theta[9]))
+        # h_a = F.linear(h_a, theta[10], bias=theta[11])
+        # pi = F.softmax(h_a, -1)
+        h = self.activation_f(F.linear(x, theta[0], bias=theta[1]))
+        h = self.activation_f(F.linear(h, theta[2], bias=theta[3]))
+        h = self.activation_f(F.linear(h, theta[4], bias=theta[5]))
+        h_a = self.activation_f(F.linear(h, theta[6], bias=theta[7]))
+
         pi = F.softmax(h_a, -1)
 
         if decoupled_exploration:
@@ -606,17 +636,28 @@ class Curiosity2MamlParamsPPO(nn.Module):
         if not use_beta and self.decoupled_reward == 0:
             beta = self.beta_tmp
 
-        # pass through z_0
-        h = self.activation_f(F.conv2d(x, self.theta[0], bias=self.theta[1], stride=1, padding=0))
-        h = self.activation_f(F.conv2d(h, self.theta[2], bias=self.theta[3], stride=1, padding=0))
-        h = self.activation_f(F.conv2d(h, self.theta[4], bias=self.theta[5], stride=1, padding=0))
-        h = self.activation_f(F.conv2d(h, self.theta[6], bias=self.theta[7], stride=1, padding=0))
-        h = h.contiguous()
-        h = h.view(-1, (self.img_reduced_dim * self.img_reduced_dim * 4))
+        # # pass through z_0
+        # h = self.activation_f(F.conv2d(x, self.theta[0], bias=self.theta[1], stride=1, padding=0))
+        # h = self.activation_f(F.conv2d(h, self.theta[2], bias=self.theta[3], stride=1, padding=0))
+        # h = self.activation_f(F.conv2d(h, self.theta[4], bias=self.theta[5], stride=1, padding=0))
+        # h = self.activation_f(F.conv2d(h, self.theta[6], bias=self.theta[7], stride=1, padding=0))
+        # h = h.contiguous()
+        # h = h.view(-1, (self.img_reduced_dim * self.img_reduced_dim * 4))
+        #
+        # # pass through theta
+        # h_a = self.activation_f(F.linear(h, self.theta[8], bias=self.theta[9]))
+        # h_a = F.linear(h_a, self.theta[10], bias=self.theta[11])
+        #
+        # h = torch.cat([h, a, h_a], -1)
+        #
+        # h_r = self.activation_f(F.linear(h, beta[0], bias=beta[1]))
+        # h_r = F.linear(h_r, beta[2], bias=beta[3])
 
-        # pass through theta
-        h_a = self.activation_f(F.linear(h, self.theta[8], bias=self.theta[9]))
-        h_a = F.linear(h_a, self.theta[10], bias=self.theta[11])
+        # pass through z_0
+        h = self.activation_f(F.linear(x, self.theta[0], bias=self.theta[1]))
+        h = self.activation_f(F.linear(h, self.theta[2], bias=self.theta[3]))
+        h = self.activation_f(F.linear(h, self.theta[4], bias=self.theta[5]))
+        h_a = self.activation_f(F.linear(h, self.theta[6], bias=self.theta[7]))
 
         h = torch.cat([h, a, h_a], -1)
 
