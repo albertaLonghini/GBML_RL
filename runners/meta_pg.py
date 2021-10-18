@@ -241,6 +241,28 @@ def meta_pg(params, writer, n_experiment, device):
             list_sims.append(sim)
             T_list.append(T)
 
+            if i == 0:
+                agent.epsilon = 1.
+                img = np.zeros((17, 17))
+                counter = np.ones((17, 17))
+                for _ in range(100):
+                    sim.reset()
+                    st = sim.get_state()
+                    for t in range(T_adapt):
+                        a, _, _ = agent.get_action(st)
+                        r, done = sim.step(a)
+                        st1 = sim.get_state()
+                        rt_hat = agent.policy.get_predicted_reward(torch.tensor(st1).float().to(device), torch.tensor(a).float().to(device).view(1, 1))
+                        img[int(st1[0, 2 * t]), int(st1[0, 2 * t + 1])] += rt_hat.detach().cpu().item()
+                        counter[int(st1[0, 2 * t]), int(st1[0, 2 * t + 1])] += 1
+                        if done:
+                            break
+                        st = st1
+                img /= counter
+                img /= np.linalg.norm(img)
+                agent.writer.add_image("inner_reward", torch.tensor(img), agent.log_frq_idx, dataformats='HW')
+                agent.log_frq_idx += 1
+
 
             ##################################################################### GREEDY EXPLORATION TRAJECTORY ########################################################
 
@@ -343,7 +365,7 @@ def meta_pg(params, writer, n_experiment, device):
         cos_init = 0
         l_expl = 0
 
-        for exploiter_it in tqdm(range(params['exploiter_iteration']-1)):
+        for exploiter_it in range(params['exploiter_iteration']-1):
             # recollect trajectories with adapted theta, reset theta_0
             theta_0 = copy.deepcopy(agent.policy.get_exploiter_starting_params())
 

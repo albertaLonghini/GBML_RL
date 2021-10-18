@@ -174,12 +174,6 @@ class PPO(nn.Module):
 
         self.policy.train()
 
-        # if idx == 0 and print_grads:
-        #     states = np.concatenate(self.batchdata[0][idx].states, 0)
-        #     img = np.sum(states, 0)[1]
-        #     self.writer.add_image("exploration_visited", torch.tensor(img), self.log_frq_idx, dataformats='HW')
-        #     self.log_frq_idx += 1
-
         rt = self.to_tensor(self.batchdata[0][idx].rewards)
         rtgs = self.to_tensor(calc_rtg(rt, self.batchdata[0][idx].is_terminal, self.gamma))  # reward-to-go
         states = torch.cat([self.to_tensor(x) for x in self.batchdata[0][idx].states], 0).detach()
@@ -188,7 +182,38 @@ class PPO(nn.Module):
 
         logprobs_explorer, v, _ = self.policy.evaluate(states, actions[:, 0])  # logprobs of explorer
 
-        loss, loss_pi, loss_v, R_err = self.policy.get_adapt_loss(logprobs_explorer, old_logprobs_explorer, rt, rtgs, states, actions, v, self.c1)
+        loss, loss_pi, loss_v, R_err, rt_hat = self.policy.get_adapt_loss(logprobs_explorer, old_logprobs_explorer, rt, rtgs, states, actions, v, self.c1)
+
+
+
+        if idx == 0 and print_grads:
+            img = np.zeros((17, 17))
+            for idx_img, states_img in enumerate(self.batchdata[0][0].states):
+                t = idx_img % (int(states_img.shape[1] / 2) - 1)
+                img[int(states_img[0, 2 * t]), int(states_img[0, 2 * t + 1])] += 1
+
+                # for t in range(int(states.shape[1] / 2)):
+                #     img[int(states[0, 2 * t]), int(states[0, 2 * t + 1])] += 1
+            self.writer.add_image("exploration_visited", torch.tensor(img), self.log_frq_idx, dataformats='HW')
+            self.log_frq_idx += 1
+
+            # img = np.zeros((17, 17))
+            # counter = np.ones((17, 17))
+            # for idx_img, states_img in enumerate(self.batchdata[0][0].next_states):
+            #
+            #     t = idx_img % (int(states_img.shape[1] / 2) - 1)
+            #     img[int(states_img[0, 2 * t]), int(states_img[0, 2 * t + 1])] += rt_hat[idx_img]
+            #     counter[int(states_img[0, 2 * t]), int(states_img[0, 2 * t + 1])] += 1
+            #
+            #
+            #     # for t in range(int(states.shape[1] / 2)):
+            #     #     img[int(states[0, 2 * t]), int(states[0, 2 * t + 1])] += 1
+            #     #     counter[int(states[0, 2 * t]), int(states[0, 2 * t + 1])] += 1
+            # img /= counter
+            # self.writer.add_image("inner_reward", torch.tensor(img), self.log_frq_idx, dataformats='HW')
+            # self.log_frq_idx += 1
+
+
 
         if self.decouple_predictors == 0 and self.inner_loss_type == 1:
             rt_hat = self.policy.get_predicted_reward(states, actions, use_beta=True)

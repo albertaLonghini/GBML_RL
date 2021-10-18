@@ -545,7 +545,7 @@ class Curiosity2MamlParamsPPO(nn.Module):
         # self.beta = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.beta_shapes])
         self.decouple_explorer = params['decoupled_explorer']
         if self.decouple_explorer == 1:
-            self.psi_shapes = [[32, 2*params['path_length']*params['horizon_multiplier_adaptation']], [32],
+            self.psi_shapes = [[32, 2*(params['path_length']*params['horizon_multiplier_adaptation']+1)], [32],
                                [32, 32], [32],
                                [32, 32], [32],
                                [4, 32], [4],
@@ -555,7 +555,7 @@ class Curiosity2MamlParamsPPO(nn.Module):
                 if self.psi[i].dim() > 1:
                     torch.nn.init.kaiming_uniform_(self.psi[i])
 
-        self.theta_shapes = [[32, 2*params['path_length']*params['horizon_multiplier_adaptation']], [32],
+        self.theta_shapes = [[32, 2*(params['path_length']*params['horizon_multiplier_adaptation']+1)], [32],
                              [32, 32], [32],
                              [32, 32], [32],
                              [4, 32], [4],
@@ -700,7 +700,7 @@ class Curiosity2MamlParamsPPO(nn.Module):
         loss_pi = (- torch.exp(logprobs - old_logprobs.detach()) * R_err).mean()
         loss = loss_pi
 
-        return loss, loss_pi.detach().cpu().item(), 0, R_err.mean().detach().cpu().item()
+        return loss, loss_pi.detach().cpu().item(), 0, R_err.mean().detach().cpu().item(), rt_hat.detach().cpu().numpy()
 
 
 class Curiosity1MamlParamsPPO(nn.Module):

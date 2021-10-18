@@ -94,7 +94,7 @@ parser.add_argument('--decoupled_predictors', default=0, type=int, help='0: same
 parser.add_argument('--beta_model', default=1, type=int, help='0: input = z_0 latent space and action, 1: different networks')
 
 
-parser.add_argument('--exploiter_iteration', default=3, type=int, help='Number of exploiter optimization') # TODO: 10
+parser.add_argument('--exploiter_iteration', default=10, type=int, help='Number of exploiter optimization')  # TODO: 10
 
 if __name__ == '__main__':
     args = parser.parse_args()
