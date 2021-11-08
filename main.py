@@ -27,7 +27,7 @@ parser.add_argument('--episodes_test', default=1000, type=int, help='Number of e
 parser.add_argument('--episodes_maml', default=100, type=int, help='Number of episodes per epoch during training in MAML') # todo: useless
 
 
-parser.add_argument('--batch_tasks', default=50, type=int, help='Number of mazes per batch during maml training')
+parser.add_argument('--batch_tasks', default=10, type=int, help='Number of mazes per batch during maml training')
 
 
 parser.add_argument('--horizon_multiplier_adaptation', default=9, type=int, help='Multiplier of shortest path size to define max steps per episode for the adaptation step')
@@ -39,7 +39,7 @@ parser.add_argument('--modalities_goal_dist', default=0, type=int, help='0: unif
 parser.add_argument('--epochs', default=100000, type=int, help='Number of different mazes to train on')
 parser.add_argument('--adaptive_lr', default=False, type=bool, help='Per parameter adaptive learning rate')
 parser.add_argument('--horizon_multiplier', default=1, type=int, help='Multiplier of shortest path size to define max steps per episode')  # todo: back to 3
-parser.add_argument('--adaptation_trajectories', default=24, type=int, help='Number of trajectories used for the adaptation step (MAML), 0 means only one step') # todo: back to 25 without optim
+parser.add_argument('--adaptation_trajectories', default=1, type=int, help='Number of trajectories used for the adaptation step (MAML), 0 means only one step') # todo: back to 25 without optim
 parser.add_argument('--eps_adapt_decay', default=0.8, type=float, help='epsilon adaptation decay')      #todo: 0.6 for 10 trajs
 parser.add_argument('--adaptation_best_trajectories', default=1.0, type=float, help='Ratio of trajectories with highest reword to be used in adaptation')
 parser.add_argument('--adaptation_optimal_traj', default=False, type=bool, help='Sample from optimal paths for adaptation')

@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 from torch.distributions import Categorical
+from utils import calc_rtg
 
 
 """
@@ -562,7 +563,8 @@ class Curiosity2MamlParamsPPO(nn.Module):
                              ]
         self.theta_v_shapes = [[32, 32], [32],
                                [1, 32], [1]]
-        self.beta_shapes = [[32, 32 + 1 + 4], [32],
+        self.beta_shapes = [[32, 32 + 1 + 4 + 2*(params['path_length']*params['horizon_multiplier_adaptation']+1)], [32],
+                            [32, 32], [32],
                             [1, 32], [1]]
         self.theta = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.theta_shapes])
         self.theta_v = nn.ParameterList([nn.Parameter(torch.zeros(t_size)) for t_size in self.theta_v_shapes])
@@ -659,10 +661,11 @@ class Curiosity2MamlParamsPPO(nn.Module):
         h = self.activation_f(F.linear(h, self.theta[4], bias=self.theta[5]))
         h_a = self.activation_f(F.linear(h, self.theta[6], bias=self.theta[7]))
 
-        h = torch.cat([h, a, h_a], -1)
+        h = torch.cat([x, h, a, h_a], -1)
 
         h_r = self.activation_f(F.linear(h, beta[0], bias=beta[1]))
-        h_r = F.linear(h_r, beta[2], bias=beta[3])
+        h_r = self.activation_f(F.linear(h_r, beta[2], bias=beta[3]))
+        h_r = F.linear(h_r, beta[4], bias=beta[5])
 
         return h_r[:, 0]
 
@@ -692,10 +695,14 @@ class Curiosity2MamlParamsPPO(nn.Module):
 
         return action_logprobs, v, dist_entropy
 
-    def get_adapt_loss(self, logprobs, old_logprobs, rt, R, st, at, V, c1):
+    def get_adapt_loss(self, logprobs, old_logprobs, rt, R, st, at, V, c1, terminals, device):
 
         rt_hat = self.get_predicted_reward(st, at)
         R_err = ((rt - rt_hat) ** 2)
+
+        for i in range(len(terminals)-2, -1, -1):
+            if not terminals[i]:
+                R_err[i] += 0.9*R_err[i+1]
 
         loss_pi = (- torch.exp(logprobs - old_logprobs.detach()) * R_err).mean()
         loss = loss_pi

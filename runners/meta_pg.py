@@ -18,8 +18,8 @@ def push_trajectories(agent, idx, sim, N_trj, ratio_best_trj, T, theta_i=None, m
 
     temp_data = []
     if mode == agent.ADAPTATION:  # TODO: CHANGE ME
-        cumulative_rwds = np.zeros(max(1, N_trj+1))
-        temp_num_optim_trj = np.zeros(max(1, N_trj+1))
+        cumulative_rwds = np.zeros(max(1, 1))
+        temp_num_optim_trj = np.zeros(max(1, 1))
     else:
         cumulative_rwds = np.zeros(max(1, N_trj))
         temp_num_optim_trj = np.zeros(max(1, N_trj))
@@ -63,35 +63,38 @@ def push_trajectories(agent, idx, sim, N_trj, ratio_best_trj, T, theta_i=None, m
             temp_num_optim_trj[0] += 1
 
     else:
-        for trj in range(N_trj):
-            sim.reset()
-            st = sim.get_state()
-            temp_traj = []
 
-            for t in range(T):
-                a, logprob, v = agent.get_action(st, theta_i)
-                # logprob, v, _ = agent.policy.evaluate(agent.to_tensor(st), a, theta=agent.policy.get_theta())
-                r, done = sim.step(a)
-                cumulative_rwds[trj] += r
+        if mode == agent.EVALUATION:
 
-                st1 = sim.get_state()
+            for trj in range(N_trj):
+                sim.reset()
+                st = sim.get_state()
+                temp_traj = []
 
-                if done:
-                    temp_num_optim_trj[trj] += 1
+                for t in range(T):
+                    a, logprob, v = agent.get_action(st, theta_i)
+                    # logprob, v, _ = agent.policy.evaluate(agent.to_tensor(st), a, theta=agent.policy.get_theta())
+                    r, done = sim.step(a)
+                    cumulative_rwds[trj] += r
 
-                if t == T - 1:
-                    done = True
+                    st1 = sim.get_state()
 
-                temp_traj.append((st, a, logprob, logprob, v, r, done, st1))
+                    if done:
+                        temp_num_optim_trj[trj] += 1
 
-                if done:
-                    break
+                    if t == T - 1:
+                        done = True
 
-                st = st1
+                    temp_traj.append((st, a, logprob, logprob, v, r, done, st1))
 
-            temp_data.append(temp_traj)
+                    if done:
+                        break
 
-            agent.update_epsilon(mode)
+                    st = st1
+
+                temp_data.append(temp_traj)
+
+                agent.update_epsilon(mode)
 
 
 
@@ -100,8 +103,7 @@ def push_trajectories(agent, idx, sim, N_trj, ratio_best_trj, T, theta_i=None, m
 
 
     if mode == agent.ADAPTATION:
-        N_trj += 1
-        trj = N_trj-1
+        trj = 0
 
         a_optimal = [1]*6 + [2, 0]*6 + [3, 0]*6 + [3, 1] * 6 + [2, 1]*6
 
@@ -241,27 +243,47 @@ def meta_pg(params, writer, n_experiment, device):
             list_sims.append(sim)
             T_list.append(T)
 
+
+            #####################################################################################
+
+            agent.epsilon = 1.
+            img = np.zeros((17, 17))
+            counter = np.ones((17, 17))
+            # states = torch.zeros((100*T_adapt, 110)).to(device)
+            # actions = torch.zeros((100*T_adapt, 1)).to(device)
+            # rt_hat
+            loss_beta = 0
+            for _ in range(100):
+                sim.reset()
+                st = sim.get_state()
+                for t in range(T_adapt):
+                    a, _, _ = agent.get_action(st)
+                    r, done = sim.step(a)
+                    st1 = sim.get_state()
+                    rt_hat = agent.policy.get_predicted_reward(torch.tensor(st).float().to(device), torch.tensor(a).float().to(device).view(1, 1), use_beta=True)
+                    loss_beta += ((torch.tensor(r).float().to(device).detach() - rt_hat) ** 2)
+                    img[int(st1[0, 2 * t]), int(st1[0, 2 * t + 1])] += rt_hat.detach().cpu().item()
+                    counter[int(st1[0, 2 * t]), int(st1[0, 2 * t + 1])] += 1
+                    if done:
+                        break
+                    st = st1
+
+
+            # agent.optimizer_predictor.zero_grad()
+            # loss_beta.backward()
+            # agent.optimizer_predictor.step()
+            # agent.writer.add_scalar("Reward prediction loss", loss_beta.detach().cpu().numpy(), agent.idx_reward_pred)
+            # agent.idx_reward_pred += 1
+
             if i == 0:
-                agent.epsilon = 1.
-                img = np.zeros((17, 17))
-                counter = np.ones((17, 17))
-                for _ in range(100):
-                    sim.reset()
-                    st = sim.get_state()
-                    for t in range(T_adapt):
-                        a, _, _ = agent.get_action(st)
-                        r, done = sim.step(a)
-                        st1 = sim.get_state()
-                        rt_hat = agent.policy.get_predicted_reward(torch.tensor(st1).float().to(device), torch.tensor(a).float().to(device).view(1, 1))
-                        img[int(st1[0, 2 * t]), int(st1[0, 2 * t + 1])] += rt_hat.detach().cpu().item()
-                        counter[int(st1[0, 2 * t]), int(st1[0, 2 * t + 1])] += 1
-                        if done:
-                            break
-                        st = st1
                 img /= counter
                 img /= np.linalg.norm(img)
                 agent.writer.add_image("inner_reward", torch.tensor(img), agent.log_frq_idx, dataformats='HW')
                 agent.log_frq_idx += 1
+
+            if agent.decouple_predictors == 0:
+                agent.policy.beta_tmp = nn.ParameterList([nn.Parameter(x.detach().clone()) for x in agent.policy.beta])
+
 
 
             ##################################################################### GREEDY EXPLORATION TRAJECTORY ########################################################
@@ -328,6 +350,12 @@ def meta_pg(params, writer, n_experiment, device):
 
             ############################################################################################################################################################
 
+        agent.optimizer_predictor.zero_grad()
+        loss_beta.backward()
+        agent.optimizer_predictor.step()
+        agent.writer.add_scalar("Reward prediction loss", loss_beta.detach().cpu().numpy(), agent.idx_reward_pred)
+        agent.idx_reward_pred += 1
+
         saved_distances.append(avg_final_distance/params['batch_tasks'])
 
         if epoch % 10 == 0 and n_experiment != "":
@@ -351,7 +379,7 @@ def meta_pg(params, writer, n_experiment, device):
 
         logprob_optimal_expl = 0
         for data in agent.batchdata[0]:
-            for logprob in data.logprobs[1296:]:
+            for logprob in data.logprobs: #[1296:]:
                 logprob_optimal_expl += logprob.detach().cpu().item()
         logprob_optimal_expl /= len(agent.batchdata[0])
         agent.writer.add_scalar("Prob optimal exploration", logprob_optimal_expl, int(epoch))
@@ -379,10 +407,9 @@ def meta_pg(params, writer, n_experiment, device):
 
             for k in range(agent.K):
 
-                if agent.decouple_predictors == 0:
-                    agent.policy.beta_tmp = nn.ParameterList([nn.Parameter(x.detach().clone()) for x in agent.policy.beta])
+                # if agent.decouple_predictors == 0:
+                #     agent.policy.beta_tmp = nn.ParameterList([nn.Parameter(x.detach().clone()) for x in agent.policy.beta])
 
-                # print(torch.cuda.max_memory_allocated(device=device))
 
                 l_maml = 0
                 l2_tot = 0
@@ -465,8 +492,8 @@ def meta_pg(params, writer, n_experiment, device):
                 #                 torch.nn.utils.clip_grad_norm_(agent.explorer_parameters, 0.5)
                 #             agent.optimizer_explorer.step()
 
-        if agent.decouple_predictors == 0:
-            agent.policy.beta_tmp = nn.ParameterList([nn.Parameter(x.detach().clone()) for x in agent.policy.beta])
+        # if agent.decouple_predictors == 0:
+        #     agent.policy.beta_tmp = nn.ParameterList([nn.Parameter(x.detach().clone()) for x in agent.policy.beta])
 
         theta_0 = copy.deepcopy(agent.policy.get_exploiter_starting_params())
         l_maml = 0

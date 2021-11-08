@@ -179,10 +179,11 @@ class PPO(nn.Module):
         states = torch.cat([self.to_tensor(x) for x in self.batchdata[0][idx].states], 0).detach()
         actions = self.to_tensor(self.batchdata[0][idx].actions).view(-1, 1).detach()
         old_logprobs_explorer = torch.cat([x.view(1) for x in self.batchdata[0][idx].old_logprobs])
+        terminals = self.batchdata[0][idx].is_terminal
 
         logprobs_explorer, v, _ = self.policy.evaluate(states, actions[:, 0])  # logprobs of explorer
 
-        loss, loss_pi, loss_v, R_err, rt_hat = self.policy.get_adapt_loss(logprobs_explorer, old_logprobs_explorer, rt, rtgs, states, actions, v, self.c1)
+        loss, loss_pi, loss_v, R_err, rt_hat = self.policy.get_adapt_loss(logprobs_explorer, old_logprobs_explorer, rt, rtgs, states, actions, v, self.c1, terminals, self.device)
 
 
 
@@ -215,16 +216,16 @@ class PPO(nn.Module):
 
 
 
-        if self.decouple_predictors == 0 and self.inner_loss_type == 1:
-            rt_hat = self.policy.get_predicted_reward(states, actions, use_beta=True)
-            R_err_beta = ((rt - rt_hat) ** 2)
-
-            self.optimizer_predictor.zero_grad()
-            R_err_beta.mean().backward()
-            self.optimizer_predictor.step()
-
-            self.writer.add_scalar("Reward prediction loss", R_err_beta.mean().detach().cpu().numpy(), self.idx_reward_pred)
-            self.idx_reward_pred += 1
+        # if self.decouple_predictors == 0 and self.inner_loss_type == 1:
+        #     rt_hat = self.policy.get_predicted_reward(states, actions, use_beta=True)
+        #     R_err_beta = ((rt - rt_hat) ** 2)
+        #
+        #     self.optimizer_predictor.zero_grad()
+        #     R_err_beta.mean().backward()
+        #     self.optimizer_predictor.step()
+        #
+        #     self.writer.add_scalar("Reward prediction loss", R_err_beta.mean().detach().cpu().numpy(), self.idx_reward_pred)
+        #     self.idx_reward_pred += 1
 
 
 
